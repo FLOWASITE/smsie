@@ -94,13 +94,14 @@ function refreshCallStateUI(iccid) {
         $('#btn-call-hangup').prop('disabled', !callActive);
         $('.btn-dtmf').prop('disabled', !callActive);
     }).fail(function (xhr) {
-        const msg = xhr && xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'call state unavailable';
+        const rawMessage = xhr && xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : '';
+        const msg = xhr && xhr.status === 404 ? 'Modem chưa trực tuyến. Hãy kiểm tra kết nối USB.' : (rawMessage || 'Không đọc được trạng thái cuộc gọi.');
         $('#call-panel').addClass('d-none');
         $('#call-not-ready').removeClass('d-none').text(msg);
         $('#btn-call-dial').prop('disabled', true);
         $('#btn-call-hangup').prop('disabled', true);
         $('.btn-dtmf').prop('disabled', true);
-        $('#call-status').text(`Call state error: ${msg}`);
+        $('#call-status').text(msg);
     });
 }
 
@@ -217,6 +218,10 @@ async function ensureCallSignaling(iccid) {
 }
 
 window.getSmsieCallStreams = () => ({ localStream: callLocalStream, remoteStream: callRemoteStream });
+window.setSmsieCallMedia = ({ mic, speaker }) => {
+    if (typeof mic === 'boolean' && callLocalStream) callLocalStream.getAudioTracks().forEach(track => { track.enabled = mic; });
+    if (typeof speaker === 'boolean' && callPlaybackAudio) callPlaybackAudio.muted = !speaker;
+};
 
 $.ajaxSetup({
     beforeSend: function (xhr) {

@@ -1373,6 +1373,574 @@ body {
   display: block;
 }
 
+/* Call center layout follows the same flat, quiet operations language as the other views. */
+.call-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.call-section-title > i {
+  color: #0b6c60;
+  font-size: 1rem;
+}
+
+.call-section-title h2 {
+  margin: 0;
+  color: var(--ops-ink);
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.call-sim-selector {
+  margin-bottom: 0.75rem;
+  padding: 0.9rem 1rem;
+  box-shadow: 0 8px 26px rgba(40, 82, 72, 0.05);
+}
+
+.call-sim-rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(205px, 1fr);
+  gap: 0.6rem;
+  overflow-x: auto;
+  padding: 0.05rem 0.05rem 0.35rem;
+  scrollbar-width: thin;
+}
+
+.call-sim-card {
+  min-height: 98px;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.8rem 0.9rem;
+  color: var(--ops-ink);
+  text-align: left;
+  background: #ffffff;
+  border: 1px solid var(--ops-line);
+  border-radius: 9px;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.call-sim-card:hover {
+  border-color: #9bd7cb;
+  transform: translateY(-1px);
+}
+
+.call-sim-card.is-selected {
+  background: #f7fcfa;
+  border-color: var(--ops-accent);
+  box-shadow: 0 0 0 2px rgba(15, 139, 120, 0.08);
+}
+
+.call-sim-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.call-sim-card-top strong::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  display: inline-block;
+  margin-right: 0.45rem;
+  background: var(--ops-success);
+  border-radius: 50%;
+}
+
+.call-sim-card.is-warning .call-sim-card-top strong::before { background: var(--ops-warning); }
+.call-sim-card.is-offline .call-sim-card-top strong::before { background: #9aa7b2; }
+
+.call-sim-status {
+  padding: 0.2rem 0.45rem;
+  color: #65726e;
+  background: #eef2f0;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.call-sim-status.is-ready { color: #137653; background: #e1f4ec; }
+.call-sim-status.is-warning { color: #996019; background: #fff2dd; }
+.call-sim-status.is-offline { color: #718078; background: #edf0ef; }
+
+.call-sim-phone,
+.call-sim-meta {
+  display: block;
+}
+
+.call-sim-phone {
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-sim-meta {
+  color: var(--ops-muted);
+  font-size: 0.7rem;
+}
+
+.call-sim-empty {
+  min-height: 80px;
+  display: grid;
+  place-items: center;
+  color: var(--ops-muted);
+}
+
+.call-workspace.call-triple-grid {
+  grid-template-columns: minmax(245px, 0.92fr) minmax(420px, 1.45fr) minmax(270px, 0.9fr);
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.call-triple-grid > .ops-panel {
+  min-height: 382px;
+  padding: 1.1rem;
+  box-shadow: 0 8px 26px rgba(40, 82, 72, 0.05);
+}
+
+.call-selected-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 0.8rem 0.8rem 0.8rem;
+  background: var(--ops-accent-soft);
+  border-radius: 9px;
+}
+
+.call-selected-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  background: var(--ops-accent);
+  border-radius: 9px;
+}
+
+.call-selected-hero span,
+.call-selected-hero strong {
+  display: block;
+}
+
+.call-selected-hero span {
+  color: #35524b;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.call-selected-hero strong {
+  overflow: hidden;
+  margin-top: 0.1rem;
+  color: var(--ops-ink);
+  font-size: 1.08rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-selected-hero .call-device-status {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  max-width: 42%;
+}
+
+.call-selected-hero > div:nth-child(2) {
+  min-width: 0;
+  padding-top: 1.25rem;
+}
+
+#call-selected-label {
+  font-size: clamp(0.82rem, 1vw, 1rem);
+}
+
+.call-device-details {
+  display: grid;
+  gap: 0;
+  margin: 0.65rem 0 0.85rem;
+}
+
+.call-device-details > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.15rem;
+  border-bottom: 1px solid #edf2f0;
+}
+
+.call-device-details dt,
+.call-device-details dd {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.call-device-details dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ops-muted);
+  font-weight: 500;
+}
+
+.call-device-details dt i {
+  width: 18px;
+  color: #617d75;
+}
+
+.call-device-details dd {
+  color: var(--ops-ink);
+  font-weight: 650;
+  text-align: right;
+}
+
+.call-device-details dd.is-ready {
+  color: var(--ops-success);
+}
+
+.call-selected-panel .call-select {
+  min-height: 42px;
+  font-size: 0.78rem;
+}
+
+.call-number-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.7rem;
+}
+
+.call-number-wrap > i {
+  position: absolute;
+  left: 0.9rem;
+  z-index: 1;
+  color: #55736b;
+}
+
+.call-number-wrap .call-number-input {
+  min-height: 48px;
+  padding: 0.6rem 2.8rem 0.6rem 2.55rem;
+  border-radius: 9px;
+  font-family: Inter, sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 0;
+}
+
+#call-clear-number {
+  position: absolute;
+  right: 0.65rem;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: #7c8d88;
+  background: #edf2f0;
+  border: 0;
+  border-radius: 50%;
+}
+
+.call-dial-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(150px, 0.9fr);
+  gap: 0.75rem;
+}
+
+.call-dial-grid .call-keypad-grid {
+  gap: 0.38rem;
+}
+
+.call-dial-grid .call-keypad-grid .btn-dtmf {
+  min-height: 47px;
+  aspect-ratio: auto;
+  background: #f2f5f7;
+  border-color: #edf1f3;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.call-action-stack {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 0.55rem;
+}
+
+.call-action-stack .call-button {
+  min-height: 50px;
+}
+
+.call-action-stack .call-keypad-note {
+  align-self: stretch;
+  margin: 0;
+  padding: 0.7rem;
+  color: #4f6b7b;
+  background: #eff7fb;
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
+.call-info-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.call-info-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.45rem;
+  min-height: 220px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.call-info-icon {
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 0.35rem;
+  color: #75bbae;
+  background: #edf7f4;
+  border-radius: 50%;
+  font-size: 2.1rem;
+}
+
+.call-info-panel.is-active .call-info-icon {
+  color: #ffffff;
+  background: var(--ops-accent);
+}
+
+.call-info-empty strong {
+  color: var(--ops-ink);
+  font-size: 0.9rem;
+}
+
+.call-info-empty > span {
+  max-width: 26ch;
+  color: var(--ops-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.call-info-empty #call-duration {
+  margin-top: 0.2rem;
+  font-size: 1.15rem;
+}
+
+.call-media-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--ops-line);
+}
+
+.call-media-button {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  color: #556963;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.call-media-button > i,
+.call-record-control {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: #627b74;
+  background: #f0f4f2;
+  border: 1px solid #e1e9e6;
+  border-radius: 50%;
+  font-size: 0.95rem;
+}
+
+.call-media-button.is-on > i {
+  color: #087b65;
+  background: #e5f6f0;
+  border-color: #bfe7dc;
+}
+
+.call-media-button > span {
+  display: grid;
+}
+
+.call-media-button small {
+  color: #86968f;
+  font-size: 0.62rem;
+}
+
+.call-media-button.is-on small {
+  color: var(--ops-success);
+}
+
+.call-record-button {
+  position: relative;
+}
+
+.call-record-button .call-record-control {
+  color: var(--ops-danger);
+  background: #fff0f2;
+  border-color: #f7cbd2;
+}
+
+.call-record-control {
+  position: relative;
+}
+
+.call-record-control .recording-pulse {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 7px;
+  height: 7px;
+}
+
+.call-recording-status {
+  min-height: 1rem;
+  margin-top: 0.35rem;
+  text-align: center;
+}
+
+.call-recordings-panel {
+  padding: 0.85rem 1rem 0.25rem;
+  box-shadow: 0 8px 26px rgba(40, 82, 72, 0.05);
+}
+
+.call-recordings-panel .ops-panel-head {
+  margin-bottom: 0.35rem;
+}
+
+.call-recording-player {
+  width: 290px;
+  height: 34px;
+}
+
+.call-recording-table {
+  min-width: 780px;
+}
+
+.call-recording-table th {
+  padding: 0.55rem 0.7rem;
+  color: #73847f;
+  background: #f5f8f7;
+  border: 0;
+  font-size: 0.67rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.call-recording-table td {
+  padding: 0.6rem 0.7rem;
+  color: #4a5b56;
+  border-color: #edf2f0;
+  font-size: 0.72rem;
+  vertical-align: middle;
+}
+
+.call-recording-contact {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.call-recording-avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  color: #2468df;
+  background: #e8efff;
+  border-radius: 50%;
+}
+
+.call-recording-contact strong,
+.call-recording-contact small {
+  display: block;
+}
+
+.call-recording-contact strong {
+  color: var(--ops-ink);
+  font-size: 0.76rem;
+}
+
+.call-recording-contact small {
+  margin-top: 0.1rem;
+  color: var(--ops-muted);
+  font-size: 0.63rem;
+}
+
+.call-recording-sim {
+  display: inline-flex;
+  padding: 0.25rem 0.5rem;
+  color: #08715f;
+  background: #e4f5ef;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.call-recording-success {
+  color: #65766f;
+  white-space: nowrap;
+}
+
+.call-recording-success i {
+  margin-right: 0.35rem;
+  color: var(--ops-success);
+  font-size: 0.48rem;
+}
+
+.call-recording-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.call-recording-actions .call-recording-play {
+  width: auto;
+  min-width: 130px;
+  height: 34px;
+  display: flex;
+  gap: 0.45rem;
+  padding: 0 0.65rem;
+  color: #3f5650;
+  background: #f1f4f3;
+  border-radius: 999px;
+  font-size: 0.66rem;
+}
+
+.call-recording-download {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  color: #4c6961;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+}
+
+.call-recording-download:hover {
+  background: var(--ops-accent-soft);
+}
+
 @media (max-width: 1180px) {
   .ops-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1384,6 +1952,19 @@ body {
 
   .mini-slot-grid {
     grid-template-columns: repeat(8, minmax(20px, 1fr));
+  }
+
+  .call-workspace.call-triple-grid {
+    grid-template-columns: minmax(230px, 0.8fr) minmax(400px, 1.25fr);
+  }
+
+  .call-info-panel {
+    grid-column: 1 / -1;
+    min-height: auto !important;
+  }
+
+  .call-info-empty {
+    min-height: 170px;
   }
 }
 
@@ -1421,6 +2002,14 @@ body {
 
   .call-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .call-workspace.call-triple-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .call-info-panel {
+    grid-column: auto;
   }
 
   .call-dialer-panel,
@@ -1499,6 +2088,19 @@ body {
 
   .call-recording-player {
     width: 100%;
+  }
+
+  .call-dial-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .call-action-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+  }
+
+  .call-action-stack .call-keypad-note {
+    grid-column: 1 / -1;
   }
 }
 
