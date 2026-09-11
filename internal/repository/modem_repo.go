@@ -17,7 +17,7 @@ func NewModemRepository(db *gorm.DB) *ModemRepository {
 func (r *ModemRepository) Upsert(modem *model.Modem) error {
 	return r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "iccid"}},
-		DoUpdates: clause.AssignmentColumns([]string{"imei", "port_name"}),
+		DoUpdates: clause.AssignmentColumns([]string{"imei"}),
 	}).Create(modem).Error
 }
 
