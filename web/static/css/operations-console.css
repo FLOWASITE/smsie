@@ -821,6 +821,11 @@ body {
   border-radius: 10px;
 }
 
+.schedule-card.is-selected {
+  border-color: var(--ops-primary);
+  box-shadow: 0 0 0 3px rgba(15, 143, 124, 0.1);
+}
+
 .schedule-main {
   min-width: 0;
 }

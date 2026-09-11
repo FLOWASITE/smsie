@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -618,6 +619,34 @@ func (h *ModemHandler) ExecuteAT(c *gin.Context) {
 
 func (h *ModemHandler) ExecuteInput(c *gin.Context) {
 	h.executeCommand(c, 5*time.Second)
+}
+
+func (h *ModemHandler) CheckBalance(c *gin.Context) {
+	iccid := c.Param("iccid")
+	if !enforceICCIDPermission(c, h.db, iccid, PermSendAT) {
+		return
+	}
+
+	w := h.wm.GetWorkerByICCID(iccid)
+	if w == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Modem not active (worker not found)"})
+		return
+	}
+	if err := w.RequestBalance(); err != nil {
+		if errors.Is(err, worker.ErrBalanceCheckInProgress) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Balance check already in progress"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Balance check failed: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"status": "checking",
+		"iccid":  iccid,
+		"method": "ussd",
+		"code":   "*101#",
+	})
 }
 
 func (h *ModemHandler) executeCommand(c *gin.Context, timeout time.Duration) {

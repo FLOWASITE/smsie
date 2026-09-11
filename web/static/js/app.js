@@ -290,6 +290,41 @@ function getFlagEmoji(countryCode) {
     return String.fromCodePoint(...codePoints);
 }
 
+function currentAppRoute() {
+    return window.smsieRouter.parseAppRoute(window.location.hash);
+}
+
+function navigateApp(view, iccid, replace) {
+    const next = window.smsieRouter.buildAppRoute(view, iccid);
+    if (replace) window.history.replaceState(null, '', next);
+    else if (window.location.hash !== next) window.location.hash = next;
+    else activateAppRoute();
+}
+
+function activateAppRoute() {
+    const route = currentAppRoute();
+    const nav = $(`#nav-${route.view}`);
+    const view = $(`#view-${route.view}`);
+    if (!nav.length || !view.length) return;
+
+    $('.nav-link').removeClass('active');
+    nav.addClass('active');
+    $('.view-section').addClass('d-none');
+    view.removeClass('d-none');
+
+    if (route.view === 'sms') {
+        $('#sms-filter-modem').val(route.iccid);
+        loadSMS(1);
+    }
+    if (route.view === 'modems') loadModems();
+    if (route.view === 'apikeys') loadAPIKeys();
+    if (route.view === 'users') loadUsers();
+    $(document).trigger('smsie:route', [route]);
+}
+
+window.currentAppRoute = currentAppRoute;
+window.navigateApp = navigateApp;
+
 $(document).ready(function () {
     // Set initial select value
     $('#lang-select').val(currentLang);
@@ -313,21 +348,14 @@ $(document).ready(function () {
     // Nav
     $('.nav-link').click(function (e) {
         e.preventDefault();
-        $('.nav-link').removeClass('active');
-        $(this).addClass('active');
-        $('.view-section').addClass('d-none');
-
-        const id = $(this).attr('id').replace('nav-', 'view-');
-        $('#' + id).removeClass('d-none');
-
-        if (id === 'view-sms') loadSMS();
-        if (id === 'view-modems') loadModems();
-        if (id === 'view-apikeys') loadAPIKeys();
-        if (id === 'view-users') loadUsers();
+        navigateApp($(this).attr('id').replace('nav-', ''));
     });
 
+    $(window).on('hashchange', activateAppRoute);
+    if (!window.location.hash) navigateApp('overview', '', true);
+
     $('#btn-refresh-sms').click(() => loadSMS(1));
-    $('#sms-filter-modem').change(() => loadSMS(1));
+    $('#sms-filter-modem').change(function () { navigateApp('sms', $(this).val()); });
     $('#sms-filter-type').change(() => loadSMS(1));
     $('#btn-create-apikey').click(createAPIKey);
     $('#btn-refresh-apikeys').click(loadAPIKeys);
@@ -426,7 +454,7 @@ function checkAuth() {
     $('#nav-apikeys').removeClass('d-none');
     renderMCPExamples();
     loadModems(); // Preload for filter
-    loadSMS();
+    activateAppRoute();
 }
 
 function doLogin() {
@@ -463,7 +491,9 @@ const SMS_LIMIT = 20;
 
 function loadSMS(page = 1) {
     currentSMSPage = page;
-    const iccid = $('#sms-filter-modem').val();
+    const route = currentAppRoute();
+    const iccid = route.view === 'sms' && route.iccid ? route.iccid : $('#sms-filter-modem').val();
+    if (route.view === 'sms') $('#sms-filter-modem').val(iccid);
     const smsType = $('#sms-filter-type').val();
 
     $.get('/api/v1/sms', { iccid: iccid, type: smsType, page: page, limit: SMS_LIMIT }, function (resp) {
@@ -605,7 +635,8 @@ function loadModems() {
                 `);
             }
         });
-        select.val(currentVal);
+        const route = currentAppRoute();
+        select.val(route.view === 'sms' && route.iccid ? route.iccid : currentVal);
     });
 }
 

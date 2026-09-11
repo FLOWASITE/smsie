@@ -3,6 +3,7 @@ const opsState = {
     messages: [],
     previewMappings: {},
     phoneNumbers: {},
+    balanceChecks: {},
     loadedAt: null
 };
 
@@ -184,21 +185,25 @@ function renderOpsKPIs() {
 function renderSimRails() {
     const sorted = opsState.modems.slice().sort((left, right) => Number(left.slot_number || 99) - Number(right.slot_number || 99));
     ['#ops-sim-rail-overview', '#ops-sim-rail-sms'].forEach(selector => {
+        const targetView = selector.endsWith('sms') ? 'sms' : 'overview';
+        const selectedICCID = window.currentAppRoute ? window.currentAppRoute().iccid : '';
         const rail = $(selector).empty();
         for (let index = 0; index < 8; index += 1) {
             const modem = sorted[index];
-            const card = opsElement('button', `sim-rail-card${modem ? ' is-active' : ' is-empty'}`);
+            const card = opsElement('button', `sim-rail-card${modem && (!selectedICCID || modem.iccid === selectedICCID) ? ' is-active' : ''}${modem ? '' : ' is-empty'}`);
             card.attr('type', 'button');
             card.append(opsElement('div', 'sim-rail-icon').append($('<i>').addClass('bi bi-sim')));
             const body = opsElement('div', 'sim-rail-body');
-            body.append(opsElement('strong', '', `SIM ${index + 1}`));
+            body.append(opsElement('strong', '', `SIM ${modem && modem.slot_number ? modem.slot_number : index + 1}`));
             body.append(opsElement('div', 'sim-rail-number', modem ? (modem.phone_number || 'Chưa biết số') : 'Chưa gán'));
             body.append(opsElement('div', 'sim-rail-meta', modem ? `Khe ${modem.slot_number || '—'} · ${modem.port_name || '—'}` : 'Không có SIM'));
             card.append(body, opsElement('span', `sim-rail-dot${modem && opsIsOnline(modem) ? ' online' : ''}`));
-            if (modem) card.click(() => $('#nav-slots').trigger('click'));
+            if (modem) card.click(() => window.navigateApp(targetView, modem.iccid));
             rail.append(card);
         }
-        rail.append(opsElement('button', 'sim-rail-next').attr('type', 'button').attr('aria-label', 'Xem thêm SIM').append($('<i>').addClass('bi bi-chevron-right')));
+        const more = opsElement('button', 'sim-rail-next').attr('type', 'button').attr('aria-label', 'Xem thêm SIM').append($('<i>').addClass('bi bi-chevron-right'));
+        more.click(() => window.navigateApp('slots'));
+        rail.append(more);
     });
 }
 
@@ -448,8 +453,12 @@ function renderSlotGrid() {
         if (modem) card.append(opsElement('div', 'slot-meta', `Số dư ${opsBalanceLabel(modem)}${modem.balance_updated_at ? ` · ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : ''}`));
         if (modem && modem.hardware_path) card.append(opsElement('div', 'slot-meta hardware-path', modem.hardware_path));
         if (modem) {
+            card.attr({ role: 'link', tabindex: '0' })
+                .click(() => window.navigateApp('slots', modem.iccid))
+                .on('keydown', event => { if (event.key === 'Enter') window.navigateApp('slots', modem.iccid); });
             const reset = opsElement('button', 'text-action mt-2', 'Bỏ mapping preview');
-            reset.attr('type', 'button').click(function () {
+            reset.attr('type', 'button').click(function (event) {
+                event.stopPropagation();
                 delete opsState.previewMappings[modem.iccid];
                 saveOpsProfiles();
                 renderOperationsConsole();
@@ -460,8 +469,59 @@ function renderSlotGrid() {
     }
 }
 
+function balanceNeedsRefresh(modem) {
+    if (!modem.balance_updated_at) return true;
+    return Date.now() - new Date(modem.balance_updated_at).getTime() > 24 * 60 * 60 * 1000;
+}
+
+function pollBalanceResult(modem, previousUpdatedAt, attempt) {
+    window.setTimeout(function () {
+        $.get(`/api/v1/modems/${encodeURIComponent(modem.iccid)}`)
+            .done(function (fresh) {
+                if (fresh.balance_updated_at && fresh.balance_updated_at !== previousUpdatedAt) {
+                    Object.assign(modem, fresh);
+                    opsState.balanceChecks[modem.iccid] = { state: 'done' };
+                    renderOperationsConsole();
+                    return;
+                }
+                if (attempt < 5) {
+                    pollBalanceResult(modem, previousUpdatedAt, attempt + 1);
+                    return;
+                }
+                opsState.balanceChecks[modem.iccid] = { state: 'timeout' };
+                renderOperationsConsole();
+            })
+            .fail(function () {
+                opsState.balanceChecks[modem.iccid] = { state: 'error' };
+                renderOperationsConsole();
+            });
+    }, 5000);
+}
+
+function requestBalanceCheck(modem) {
+    const current = opsState.balanceChecks[modem.iccid];
+    if (current && current.state === 'checking') return;
+    const previousUpdatedAt = modem.balance_updated_at || '';
+    opsState.balanceChecks[modem.iccid] = { state: 'checking' };
+    renderOperationsConsole();
+    $.ajax({
+        url: `/api/v1/modems/${encodeURIComponent(modem.iccid)}/balance-check`,
+        method: 'POST'
+    }).done(function () {
+        pollBalanceResult(modem, previousUpdatedAt, 0);
+    }).fail(function (xhr) {
+        if (xhr.status === 409) {
+            pollBalanceResult(modem, previousUpdatedAt, 0);
+            return;
+        }
+        opsState.balanceChecks[modem.iccid] = { state: 'error' };
+        renderOperationsConsole();
+    });
+}
+
 function renderMaintenancePreview() {
     const mapped = opsMappedModems();
+    const route = window.currentAppRoute ? window.currentAppRoute() : { view: 'maintenance', iccid: '' };
     const summary = [
         { label: 'Lịch đang bật', value: '0', note: 'Khóa trong giai đoạn preview', icon: 'bi-calendar2-check', tone: 'mint' },
         { label: 'SIM đủ điều kiện', value: mapped.length, note: `${opsState.modems.length - mapped.length} modem chưa gán khe`, icon: 'bi-sim', tone: 'blue' },
@@ -487,7 +547,11 @@ function renderMaintenancePreview() {
     }
     opsState.modems.forEach(modem => {
         const slot = opsState.previewMappings[modem.iccid];
-        const card = opsElement('article', 'schedule-card');
+        const selected = route.iccid === modem.iccid;
+        const card = opsElement('article', `schedule-card${selected ? ' is-selected' : ''}`);
+        card.attr({ role: 'link', tabindex: '0' })
+            .click(() => window.navigateApp('maintenance', modem.iccid))
+            .on('keydown', event => { if (event.key === 'Enter') window.navigateApp('maintenance', modem.iccid); });
         const main = opsElement('div', 'schedule-main');
         main.append(opsElement('div', 'schedule-title', `${slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán khe'} · ${modem.port_name || modem.iccid}`));
         main.append(opsElement('div', 'ops-list-note', `${opsState.phoneNumbers[modem.iccid] || 'Chưa biết số'} · ${modem.iccid} · ${modem.operator || 'Chưa rõ nhà mạng'} · sóng ${modem.signal_strength || 0}%`));
@@ -495,24 +559,24 @@ function renderMaintenancePreview() {
         main.append(opsElement('div', 'schedule-rule', 'Mỗi tháng · gọi thử hoặc SMS · tối đa 1 lần thành công'));
         const controls = opsElement('div', 'schedule-controls');
         controls.append(opsElement('span', `status-chip ${slot ? 'status-ready' : 'status-blocked'}`, slot ? 'Sẵn sàng cấu hình' : 'Cần mapping'));
-        const balanceInput = $('<input>').addClass('form-control form-control-sm balance-input').attr({ type: 'number', min: '0', step: '1000', 'aria-label': `Số dư ${modem.phone_number || modem.iccid}` }).val(modem.balance_vnd || 0);
-        const balanceButton = opsElement('button', 'btn btn-sm btn-outline-secondary', 'Lưu số dư');
-        balanceButton.attr('type', 'button').click(function () {
-            const balance = Number(balanceInput.val());
-            if (!Number.isFinite(balance) || balance < 0) return;
-            balanceButton.prop('disabled', true).text('Đang lưu…');
-            saveModemProfile(modem.iccid, { balance_vnd: Math.round(balance) })
-                .done(function (saved) {
-                    modem.balance_vnd = saved.balance_vnd;
-                    modem.balance_updated_at = saved.balance_updated_at;
-                    renderOperationsConsole();
-                })
-                .fail(function () { balanceButton.prop('disabled', false).text('Lưu số dư'); });
+        const check = opsState.balanceChecks[modem.iccid] || {};
+        const balanceButton = opsElement('button', 'btn btn-sm btn-outline-secondary');
+        const buttonLabels = { checking: 'Đang kiểm tra…', timeout: 'Thử kiểm tra lại', error: 'Thử kiểm tra lại', done: 'Kiểm tra lại' };
+        balanceButton.html(`<i class="bi bi-wallet2"></i> ${buttonLabels[check.state] || 'Kiểm tra số dư'}`);
+        balanceButton.attr('type', 'button').prop('disabled', check.state === 'checking' || !opsIsOnline(modem)).click(function (event) {
+            event.stopPropagation();
+            window.navigateApp('maintenance', modem.iccid);
+            requestBalanceCheck(modem);
         });
-        controls.append(balanceInput, balanceButton);
+        controls.append(balanceButton);
         controls.append($('<button>').addClass('btn btn-sm btn-outline-secondary').prop('disabled', true).text('Chưa kích hoạt'));
         card.append(main, controls);
         list.append(card);
+
+        const shouldAutoCheck = route.view === 'maintenance' && (selected || (opsState.modems.length === 1 && !route.iccid));
+        if (shouldAutoCheck && balanceNeedsRefresh(modem) && !opsState.balanceChecks[modem.iccid] && opsIsOnline(modem)) {
+            requestBalanceCheck(modem);
+        }
     });
 }
 
@@ -637,14 +701,14 @@ function loadOperationsData() {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
     loadOpsProfiles();
     $('[data-open-view]').click(function () {
         const view = $(this).data('open-view');
-        $(`#nav-${view}`).trigger('click');
+        window.navigateApp(view);
     });
     $('#btn-refresh-ops').click(loadOperationsData);
     $('#btn-export-preview').click(function () {
@@ -684,11 +748,13 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
     $('#sms-search').on('input', function () {
         renderConversationInbox(opsState.currentMessages || []);
     });
-    $('.nav-link').click(function () {
-        const id = $(this).attr('id');
-        if (id === 'nav-overview' || id === 'nav-slots' || id === 'nav-alerts' || id === 'nav-reports' || id === 'nav-audit' || id === 'nav-maintenance') {
+    $(document).on('smsie:route', function (_event, route) {
+        renderSimRails();
+        if (['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(route.view)) {
             loadOperationsData();
         }
     });
-    loadOperationsData();
+    if (auth.username && ['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(window.currentAppRoute().view)) {
+        loadOperationsData();
+    }
 });

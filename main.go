@@ -147,6 +147,7 @@ func main() {
 			authGroup.POST("/modems/:iccid/operator", mh.SetOperator)
 			authGroup.POST("/modems/:iccid/at", mh.ExecuteAT)
 			authGroup.POST("/modems/:iccid/input", mh.ExecuteInput)
+			authGroup.POST("/modems/:iccid/balance-check", mh.CheckBalance)
 			authGroup.GET("/modems/:iccid/call/state", mh.GetCallState)
 			authGroup.POST("/modems/:iccid/call/dial", mh.Dial)
 			authGroup.POST("/modems/:iccid/call/hangup", mh.Hangup)

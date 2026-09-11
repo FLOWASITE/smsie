@@ -1,7 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData } = require('./operations-console.js');
+
+test('balance refresh is automatic only when missing or older than one day', () => {
+    assert.equal(balanceNeedsRefresh({}), true);
+    assert.equal(balanceNeedsRefresh({ balance_updated_at: new Date().toISOString() }), false);
+    assert.equal(balanceNeedsRefresh({ balance_updated_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() }), true);
+});
 
 test('groupOpsMessages groups by phone and sorts each thread oldest first', () => {
     const grouped = groupOpsMessages([

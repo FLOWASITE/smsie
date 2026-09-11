@@ -47,3 +47,29 @@ func TestUpdateModemProfilePersistsSlotPhoneHardwarePathAndBalance(t *testing.T)
 		t.Fatalf("profile = %#v", modem)
 	}
 }
+
+func TestCheckBalanceRejectsOfflineModem(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Modem{}, &model.UserModemPermission{}); err != nil {
+		t.Fatal(err)
+	}
+	const iccid = "89840509241455299254"
+	if err := db.Create(&model.Modem{ICCID: iccid}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/v1/modems/"+iccid+"/balance-check", nil)
+	context.Params = gin.Params{{Key: "iccid", Value: iccid}}
+	context.Set("user", &model.User{Role: "admin", AllowedModems: "*"})
+
+	NewModemHandler(db, worker.NewManager(db), nil).CheckBalance(context)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
