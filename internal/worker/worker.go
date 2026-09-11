@@ -1064,7 +1064,7 @@ func (w *ModemWorker) SendSMS(phoneNumber, message string) error {
 		return errors.New("modem not initialized")
 	}
 
-	// Clean phone number (remove spaces, ensure + prefix for international)
+	// Preserve local short codes; only an explicit '+' denotes international.
 	phoneNumber = strings.TrimSpace(phoneNumber)
 	if phoneNumber == "" {
 		return errors.New("phone number is required")
@@ -1075,7 +1075,12 @@ func (w *ModemWorker) SendSMS(phoneNumber, message string) error {
 
 	// Encode the SMS to PDU format using warthog618/sms library
 	// We need to create a SUBMIT TPDU (Mobile Originated)
-	tpdus, err := sms.Encode([]byte(message), sms.AsSubmit, sms.To(phoneNumber))
+	address := tpdu.NewAddress(tpdu.FromNumber(phoneNumber))
+	// sms.To defaults to international even without '+', misrouting 6020/8066.
+	if !strings.HasPrefix(phoneNumber, "+") {
+		address.SetTypeOfNumber(tpdu.TonUnknown)
+	}
+	tpdus, err := sms.Encode([]byte(message), sms.AsSubmit, sms.WithTemplateOption(tpdu.WithDA(address)))
 	if err != nil {
 		return fmt.Errorf("failed to encode SMS: %w", err)
 	}
