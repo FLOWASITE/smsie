@@ -350,6 +350,10 @@ body {
   width: 130px;
 }
 
+.preview-phone-input {
+  width: 145px;
+}
+
 .health-dot {
   display: inline-flex;
   align-items: center;
@@ -566,6 +570,13 @@ body {
 .message-copy {
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.message-route {
+  margin-top: 0.55rem;
+  color: #49625a;
+  font-size: 0.7rem;
+  font-weight: 650;
 }
 
 .message-meta {

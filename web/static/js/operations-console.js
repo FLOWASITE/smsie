@@ -2,8 +2,11 @@ const opsState = {
     modems: [],
     messages: [],
     previewMappings: {},
+    phoneNumbers: {},
     loadedAt: null
 };
+
+const OPS_PROFILE_STORAGE_KEY = 'smsie_ops_profiles_v1';
 
 function groupOpsMessages(messages) {
     const byPhone = new Map();
@@ -16,6 +19,36 @@ function groupOpsMessages(messages) {
         const sorted = items.slice().sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
         return { phone, messages: sorted, latest: sorted[sorted.length - 1] };
     }).sort((left, right) => new Date(right.latest.timestamp) - new Date(left.latest.timestamp));
+}
+
+function describeOpsMessageRoute(message, modems, mappings, phoneNumbers) {
+    const modem = (modems || []).find(item => item.iccid === message.iccid) || {};
+    const slot = mappings && mappings[message.iccid];
+    const phone = phoneNumbers && phoneNumbers[message.iccid];
+    const identity = [];
+    if (slot) identity.push(`Khe ${slot}`);
+    if (phone) identity.push(phone);
+    if (modem.port_name) identity.push(modem.port_name);
+    if (!identity.length && message.iccid) identity.push(message.iccid);
+    return `${message.type === 'sent' ? 'Gửi từ' : 'Nhận tại'} ${identity.join(' · ')}`;
+}
+
+function loadOpsProfiles() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(OPS_PROFILE_STORAGE_KEY) || '{}');
+        opsState.previewMappings = stored.mappings || {};
+        opsState.phoneNumbers = stored.phoneNumbers || {};
+    } catch (_) {
+        opsState.previewMappings = {};
+        opsState.phoneNumbers = {};
+    }
+}
+
+function saveOpsProfiles() {
+    localStorage.setItem(OPS_PROFILE_STORAGE_KEY, JSON.stringify({
+        mappings: opsState.previewMappings,
+        phoneNumbers: opsState.phoneNumbers
+    }));
 }
 
 function summarizeOpsData(modems, messages) {
@@ -224,6 +257,7 @@ function renderConversationThread(thread, container) {
         const outgoing = message.type === 'sent';
         const bubble = opsElement('article', `message-bubble ${outgoing ? 'is-outgoing' : 'is-incoming'}`);
         bubble.append(opsElement('div', 'message-copy', message.content || 'Không có nội dung'));
+        bubble.append(opsElement('div', 'message-route', describeOpsMessageRoute(message, opsState.modems, opsState.previewMappings, opsState.phoneNumbers)));
         const meta = opsElement('div', 'message-meta');
         const status = opsMessageStatus(message);
         meta.append(opsElement('span', `message-status status-${status.className}`, status.label));
@@ -299,14 +333,23 @@ function renderLiveUnassigned() {
         for (let slot = 1; slot <= 32; slot += 1) {
             select.append($('<option>').val(slot).text(`Khe ${String(slot).padStart(2, '0')}`));
         }
+        const phoneInput = $('<input>').addClass('form-control form-control-sm preview-phone-input').attr({
+            type: 'tel',
+            inputmode: 'tel',
+            placeholder: 'Số điện thoại',
+            'aria-label': `Số điện thoại của ${modem.port_name || modem.iccid}`
+        }).val(opsState.phoneNumbers[modem.iccid] || '');
         const button = opsElement('button', 'btn btn-sm btn-dark', 'Gán thử');
         button.attr('type', 'button').click(function () {
             const slot = Number(select.val());
             if (!slot) return;
             opsState.previewMappings[modem.iccid] = slot;
+            opsState.phoneNumbers[modem.iccid] = String(phoneInput.val() || '').trim();
+            saveOpsProfiles();
             renderOperationsConsole();
+            if (!$('#view-sms').hasClass('d-none')) loadSMS(currentSMSPage);
         });
-        row.append(opsElement('div', 'unassigned-actions').append(select, button));
+        row.append(opsElement('div', 'unassigned-actions').append(phoneInput, select, button));
         container.append(row);
     });
 }
@@ -325,12 +368,14 @@ function renderSlotGrid() {
         top.append(opsElement('span', 'slot-number', `KHE ${String(slot).padStart(2, '0')}`));
         if (modem) top.append(opsElement('span', 'health-dot is-online', 'Online'));
         card.append(top);
-        card.append(opsElement('div', 'slot-state', modem ? (modem.name || modem.port_name || modem.iccid) : 'Chưa gán SIM'));
+        card.append(opsElement('div', 'slot-state', modem ? (opsState.phoneNumbers[modem.iccid] || modem.name || modem.port_name || modem.iccid) : 'Chưa gán SIM'));
         card.append(opsElement('div', 'slot-meta', modem ? `${modem.port_name} · ${opsSignalLabel(modem.signal_strength)} ${modem.signal_strength || 0}%` : 'Sẵn sàng nhận mapping'));
+        if (modem) card.append(opsElement('div', 'slot-meta mono', `ICCID ${modem.iccid} · IMEI ${modem.imei || '—'}`));
         if (modem) {
             const reset = opsElement('button', 'text-action mt-2', 'Bỏ mapping preview');
             reset.attr('type', 'button').click(function () {
                 delete opsState.previewMappings[modem.iccid];
+                saveOpsProfiles();
                 renderOperationsConsole();
             });
             card.append(reset);
@@ -489,10 +534,11 @@ function loadOperationsData() {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { buildOpsCsv, groupOpsMessages, summarizeOpsData };
+    module.exports = { buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
+    loadOpsProfiles();
     $('[data-open-view]').click(function () {
         const view = $(this).data('open-view');
         $(`#nav-${view}`).trigger('click');

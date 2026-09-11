@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildOpsCsv, groupOpsMessages, summarizeOpsData } = require('./operations-console.js');
+const { buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData } = require('./operations-console.js');
 
 test('groupOpsMessages groups by phone and sorts each thread oldest first', () => {
     const grouped = groupOpsMessages([
@@ -37,4 +37,19 @@ test('summarizeOpsData reports modem and message health', () => {
 test('buildOpsCsv quotes commas and double quotes', () => {
     const csv = buildOpsCsv([{ timestamp: '2026-09-11T10:00:00Z', type: 'sent', phone: '+841', iccid: 'sim-1', status: 'sent', content: 'xin "chao", ban' }]);
     assert.match(csv, /"xin ""chao"", ban"/);
+});
+
+test('describeOpsMessageRoute identifies the physical SIM used', () => {
+    const modems = [{ iccid: 'sim-1', port_name: 'COM19' }];
+    const mappings = { 'sim-1': 16 };
+    const phones = { 'sim-1': '0924875662' };
+
+    assert.equal(
+        describeOpsMessageRoute({ type: 'sent', iccid: 'sim-1' }, modems, mappings, phones),
+        'Gửi từ Khe 16 · 0924875662 · COM19'
+    );
+    assert.equal(
+        describeOpsMessageRoute({ type: 'received', iccid: 'sim-1' }, modems, mappings, phones),
+        'Nhận tại Khe 16 · 0924875662 · COM19'
+    );
 });
