@@ -122,6 +122,7 @@ func main() {
 	uh := api.NewUserHandler(db)
 	akh := api.NewAPIKeyHandler(db)
 	backupHandler := api.NewAdminBackupHandler(db, config.AppConfig.Database.Driver)
+	recordingHandler := api.NewCallRecordingHandler(db, "recordings")
 	mcpHTTP := api.NewMCPHTTPServer(db, wm)
 	r.Any("/mcp", gin.WrapH(mcpHTTP.Handler()))
 
@@ -152,6 +153,9 @@ func main() {
 			authGroup.POST("/modems/:iccid/call/dial", mh.Dial)
 			authGroup.POST("/modems/:iccid/call/hangup", mh.Hangup)
 			authGroup.POST("/modems/:iccid/call/dtmf", mh.DTMF)
+			authGroup.GET("/modems/:iccid/call/recordings", recordingHandler.List)
+			authGroup.POST("/modems/:iccid/call/recordings", recordingHandler.Upload)
+			authGroup.GET("/modems/:iccid/call/recordings/:id/file", recordingHandler.Download)
 			authGroup.POST("/modems/:iccid/reboot", mh.Reboot)
 			authGroup.POST("/modems/:iccid/send", mh.SendSMS)
 			authGroup.GET("/sms", sh.ListSMS)
@@ -253,7 +257,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {

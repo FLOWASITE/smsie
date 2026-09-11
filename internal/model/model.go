@@ -88,6 +88,18 @@ type SMS struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type CallRecording struct {
+	ID              uint      `gorm:"primaryKey" json:"id"`
+	ICCID           string    `gorm:"index;not null;column:iccid" json:"iccid"`
+	Phone           string    `gorm:"size:32;index" json:"phone"`
+	FileName        string    `gorm:"size:128;uniqueIndex;not null" json:"-"`
+	ContentType     string    `gorm:"size:64;not null" json:"content_type"`
+	SizeBytes       int64     `gorm:"not null" json:"size_bytes"`
+	DurationSeconds int       `gorm:"not null;default:0" json:"duration_seconds"`
+	CreatedBy       uint      `gorm:"index;not null" json:"created_by"`
+	CreatedAt       time.Time `gorm:"index" json:"created_at"`
+}
+
 type Webhook struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	ICCID     string    `gorm:"index;not null;column:iccid" json:"iccid"`

@@ -127,6 +127,29 @@ components:
           type: string
           format: date-time
 
+    CallRecording:
+      type: object
+      properties:
+        id:
+          type: integer
+        iccid:
+          type: string
+        phone:
+          type: string
+        content_type:
+          type: string
+          enum: [audio/webm, audio/ogg, audio/mp4, audio/mpeg, audio/wav, audio/x-wav]
+        size_bytes:
+          type: integer
+          format: int64
+        duration_seconds:
+          type: integer
+        created_by:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
     Webhook:
       type: object
       properties:
@@ -616,6 +639,99 @@ paths:
       responses:
         "200":
           description: DTMF sent
+
+  /modems/{iccid}/call/recordings:
+    get:
+      summary: List call recordings for a modem
+      parameters:
+        - name: iccid
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated recordings visible to the authenticated caller
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CallRecording"
+                  pagination:
+                    type: object
+    post:
+      summary: Store a completed browser call recording
+      parameters:
+        - name: iccid
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [recording, duration_seconds]
+              properties:
+                recording:
+                  type: string
+                  format: binary
+                  description: Audio recording up to 100 MB.
+                phone:
+                  type: string
+                duration_seconds:
+                  type: integer
+                  minimum: 0
+                  maximum: 86400
+      responses:
+        "201":
+          description: Recording stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallRecording"
+
+  /modems/{iccid}/call/recordings/{id}/file:
+    get:
+      summary: Download a call recording
+      parameters:
+        - name: iccid
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Recorded audio file
+          content:
+            audio/webm:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Recording or file not found
 
   /modems/{iccid}/ws:
     get:
