@@ -598,6 +598,138 @@ body {
   border-radius: 10px;
 }
 
+.schedule-main {
+  min-width: 0;
+}
+
+.schedule-title {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.schedule-rule {
+  margin-top: 0.7rem;
+  color: #3d514b;
+  font-size: 0.8rem;
+}
+
+.schedule-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0.18rem 0.5rem;
+  color: #53615c;
+  background: #eef1ee;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-ready,
+.status-ok {
+  color: #216147;
+  background: #dfeee7;
+}
+
+.status-warning,
+.status-blocked {
+  color: #785318;
+  background: #f7ead3;
+}
+
+.status-danger {
+  color: #873a3a;
+  background: #f4dede;
+}
+
+.alert-warning {
+  border-left: 3px solid var(--ops-warning);
+}
+
+.alert-danger {
+  border-left: 3px solid var(--ops-danger);
+}
+
+.alert-ok {
+  border-left: 3px solid var(--ops-success);
+}
+
+.chart-shell h2,
+#ops-health-breakdown h2 {
+  margin: 0 0 1.25rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.chart-row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.8rem;
+}
+
+.chart-label,
+.chart-value {
+  color: var(--ops-muted);
+  font-size: 0.74rem;
+}
+
+.chart-value {
+  font-family: "IBM Plex Mono", monospace;
+  text-align: right;
+}
+
+.chart-track {
+  height: 9px;
+  overflow: hidden;
+  background: #edf1ed;
+  border-radius: 3px;
+}
+
+.chart-bar {
+  height: 100%;
+  background: var(--ops-accent);
+  border-radius: inherit;
+}
+
+.bar-sent {
+  background: #397d9c;
+}
+
+.bar-delivered {
+  background: var(--ops-success);
+}
+
+.bar-failed {
+  background: var(--ops-danger);
+}
+
+.health-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--ops-line);
+}
+
+.health-row:last-child {
+  border-bottom: 0;
+}
+
+.ops-table td {
+  color: #44524e;
+  font-size: 0.8rem;
+}
+
 .chart-shell {
   min-height: 260px;
 }
@@ -687,6 +819,15 @@ body {
     overflow-y: auto;
     border-right: 0;
     border-bottom: 1px solid var(--ops-line);
+  }
+
+  .schedule-card,
+  .alert-card {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-controls {
+    justify-content: space-between;
   }
 
   .ops-kpi {

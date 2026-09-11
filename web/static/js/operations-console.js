@@ -18,6 +18,38 @@ function groupOpsMessages(messages) {
     }).sort((left, right) => new Date(right.latest.timestamp) - new Date(left.latest.timestamp));
 }
 
+function summarizeOpsData(modems, messages) {
+    const modemList = modems || [];
+    const messageList = messages || [];
+    return {
+        modemTotal: modemList.length,
+        modemOnline: modemList.filter(opsIsOnline).length,
+        weakSignal: modemList.filter(modem => Number(modem.signal_strength || 0) < 40).length,
+        messageTotal: messageList.length,
+        received: messageList.filter(message => message.type === 'received').length,
+        sent: messageList.filter(message => message.type === 'sent').length,
+        delivered: messageList.filter(message => String(message.status || '').toLowerCase() === 'delivered').length,
+        failed: messageList.filter(message => ['failed', 'undelivered'].includes(String(message.status || '').toLowerCase())).length,
+        unread: messageList.filter(message => message.type === 'received' && !message.is_read).length
+    };
+}
+
+function buildOpsCsv(messages) {
+    const quote = value => `"${String(value === undefined || value === null ? '' : value).replaceAll('"', '""')}"`;
+    const rows = [['timestamp', 'direction', 'phone', 'iccid', 'status', 'content']];
+    (messages || []).forEach(message => {
+        rows.push([
+            message.timestamp,
+            message.type,
+            message.phone,
+            message.iccid,
+            message.status || (message.type === 'sent' ? 'sent' : 'received'),
+            message.content
+        ]);
+    });
+    return rows.map(row => row.map(quote).join(',')).join('\r\n');
+}
+
 function opsElement(tag, className, text) {
     const element = $(`<${tag}>`);
     if (className) element.addClass(className);
@@ -307,6 +339,125 @@ function renderSlotGrid() {
     }
 }
 
+function renderMaintenancePreview() {
+    const mapped = opsMappedModems();
+    const summary = [
+        { label: 'Lịch đang bật', value: '0', note: 'Khóa trong giai đoạn preview' },
+        { label: 'SIM đủ điều kiện', value: mapped.length, note: `${opsState.modems.length - mapped.length} modem chưa gán khe` },
+        { label: 'Ngân sách tháng', value: '0 đ', note: 'Chưa thiết lập hạn mức' },
+        { label: 'Lần chạy kế tiếp', value: '—', note: 'Chưa kích hoạt lịch' }
+    ];
+    const kpis = $('#ops-maintenance-summary').empty();
+    summary.forEach(item => {
+        const card = opsElement('article', 'ops-kpi');
+        card.append(opsElement('div', 'ops-kpi-label', item.label));
+        card.append(opsElement('div', 'ops-kpi-value', String(item.value)));
+        card.append(opsElement('div', 'ops-kpi-note', item.note));
+        kpis.append(card);
+    });
+
+    const list = $('#ops-schedule-list').empty();
+    if (!opsState.modems.length) {
+        list.append(opsElement('div', 'ops-empty', 'Chưa có modem để tạo lịch duy trì.'));
+        return;
+    }
+    opsState.modems.forEach(modem => {
+        const slot = opsState.previewMappings[modem.iccid];
+        const card = opsElement('article', 'schedule-card');
+        const main = opsElement('div', 'schedule-main');
+        main.append(opsElement('div', 'schedule-title', `${slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán khe'} · ${modem.port_name || modem.iccid}`));
+        main.append(opsElement('div', 'ops-list-note', `${modem.iccid} · ${modem.operator || 'Chưa rõ nhà mạng'} · sóng ${modem.signal_strength || 0}%`));
+        main.append(opsElement('div', 'schedule-rule', 'Mỗi tháng · gọi thử hoặc SMS · tối đa 1 lần thành công'));
+        const controls = opsElement('div', 'schedule-controls');
+        controls.append(opsElement('span', `status-chip ${slot ? 'status-ready' : 'status-blocked'}`, slot ? 'Sẵn sàng cấu hình' : 'Cần mapping'));
+        controls.append($('<button>').addClass('btn btn-sm btn-outline-secondary').prop('disabled', true).text('Chưa kích hoạt'));
+        card.append(main, controls);
+        list.append(card);
+    });
+}
+
+function renderAlertCenter() {
+    const container = $('#ops-alert-list').empty();
+    opsAlerts().forEach(alert => {
+        const card = opsElement('article', `alert-card alert-${alert.level}`);
+        const body = opsElement('div');
+        body.append(opsElement('div', 'schedule-title', alert.title));
+        body.append(opsElement('div', 'ops-list-note', alert.note));
+        card.append(body);
+        card.append(opsElement('span', `status-chip status-${alert.level}`, alert.level === 'danger' ? 'Khẩn cấp' : alert.level === 'ok' ? 'Ổn định' : 'Cần xử lý'));
+        container.append(card);
+    });
+}
+
+function renderReportPreview() {
+    const summary = summarizeOpsData(opsState.modems, opsState.messages);
+    const cards = [
+        { label: 'Tổng SMS', value: summary.messageTotal, note: 'Trong dữ liệu hiện có' },
+        { label: 'Tin nhận', value: summary.received, note: `${summary.unread} tin chưa đọc` },
+        { label: 'Tin đã gửi', value: summary.sent, note: `${summary.delivered} đã giao` },
+        { label: 'Gửi lỗi', value: summary.failed, note: 'Không tự động gửi lại' }
+    ];
+    const kpis = $('#ops-report-kpis').empty();
+    cards.forEach(item => {
+        const card = opsElement('article', 'ops-kpi');
+        card.append(opsElement('div', 'ops-kpi-label', item.label));
+        card.append(opsElement('div', 'ops-kpi-value', String(item.value)));
+        card.append(opsElement('div', 'ops-kpi-note', item.note));
+        kpis.append(card);
+    });
+
+    const chart = $('#ops-message-chart').empty();
+    chart.append(opsElement('div', 'eyebrow', 'Vòng đời tin nhắn'));
+    chart.append(opsElement('h2', '', 'Trạng thái SMS'));
+    const max = Math.max(summary.received, summary.sent, summary.delivered, summary.failed, 1);
+    [
+        ['Tin nhận', summary.received, 'received'],
+        ['Đã gửi', summary.sent, 'sent'],
+        ['Đã giao', summary.delivered, 'delivered'],
+        ['Thất bại', summary.failed, 'failed']
+    ].forEach(([label, value, status]) => {
+        const row = opsElement('div', 'chart-row');
+        row.append(opsElement('div', 'chart-label', label));
+        const track = opsElement('div', 'chart-track');
+        track.append(opsElement('div', `chart-bar bar-${status}`).css('width', `${Math.max((value / max) * 100, value ? 4 : 0)}%`));
+        row.append(track, opsElement('div', 'chart-value', String(value)));
+        chart.append(row);
+    });
+
+    const health = $('#ops-health-breakdown').empty();
+    health.append(opsElement('div', 'eyebrow', 'Sức khỏe SIM'));
+    health.append(opsElement('h2', '', 'Thiết bị đang theo dõi'));
+    if (!opsState.modems.length) {
+        health.append(opsElement('div', 'ops-empty mt-3', 'Chưa có modem.'));
+        return;
+    }
+    opsState.modems.forEach(modem => {
+        const row = opsElement('div', 'health-row');
+        const body = opsElement('div');
+        body.append(opsElement('div', 'ops-list-title', modem.port_name || modem.iccid));
+        body.append(opsElement('div', 'ops-list-note', `${modem.registration || 'Chưa rõ đăng ký'} · ${modem.operator || 'Chưa rõ nhà mạng'}`));
+        row.append(body, opsElement('strong', 'mono', `${modem.signal_strength || 0}%`));
+        health.append(row);
+    });
+}
+
+function renderAuditPreview() {
+    const body = $('#ops-audit-body').empty();
+    if (!opsState.messages.length) {
+        body.append($('<tr>').append($('<td>').attr('colspan', 5).append(opsElement('div', 'ops-empty', 'Chưa có sự kiện để hiển thị.'))));
+        return;
+    }
+    opsState.messages.slice(0, 50).forEach(message => {
+        const row = $('<tr>');
+        row.append($('<td>').text(new Date(message.timestamp).toLocaleString('vi-VN')));
+        row.append($('<td>').text(message.type === 'sent' ? 'admin' : 'system'));
+        row.append($('<td>').text(message.type === 'sent' ? 'Gửi SMS' : 'Nhận SMS'));
+        row.append($('<td>').text(`${message.phone || 'Không rõ số'} · ${message.iccid || 'Không rõ SIM'}`));
+        row.append($('<td>').append(opsElement('span', `status-chip status-${message.type === 'sent' ? 'ready' : 'ok'}`, opsMessageStatus(message).label)));
+        body.append(row);
+    });
+}
+
 function renderOperationsConsole() {
     renderOpsKPIs();
     renderMiniSlots();
@@ -314,6 +465,10 @@ function renderOperationsConsole() {
     renderRecentMessages();
     renderLiveUnassigned();
     renderSlotGrid();
+    renderMaintenancePreview();
+    renderAlertCenter();
+    renderReportPreview();
+    renderAuditPreview();
 }
 
 function loadOperationsData() {
@@ -334,7 +489,7 @@ function loadOperationsData() {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { groupOpsMessages };
+    module.exports = { buildOpsCsv, groupOpsMessages, summarizeOpsData };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
@@ -343,6 +498,15 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         $(`#nav-${view}`).trigger('click');
     });
     $('#btn-refresh-ops').click(loadOperationsData);
+    $('#btn-export-preview').click(function () {
+        const blob = new Blob([buildOpsCsv(opsState.messages)], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `smsie-report-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    });
     $('#sms-search').on('input', function () {
         renderConversationInbox(opsState.currentMessages || []);
     });
