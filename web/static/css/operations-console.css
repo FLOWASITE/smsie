@@ -332,6 +332,50 @@ body {
   border-top: 1px solid var(--ops-line);
 }
 
+.unassigned-device,
+.unassigned-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.unassigned-device {
+  justify-content: space-between;
+  padding: 0.8rem;
+  background: #f7f9f6;
+  border-radius: 8px;
+}
+
+.preview-slot-select {
+  width: 130px;
+}
+
+.health-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--ops-success);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.health-dot::before {
+  width: 7px;
+  height: 7px;
+  content: "";
+  background: currentColor;
+  border-radius: 50%;
+}
+
+.ops-empty {
+  padding: 1.5rem;
+  color: var(--ops-muted);
+  background: #f7f9f6;
+  border: 1px dashed #ccd5cf;
+  border-radius: 8px;
+  text-align: center;
+}
+
 .ops-toolbar {
   margin-bottom: 1rem;
 }
