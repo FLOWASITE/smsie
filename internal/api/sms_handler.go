@@ -60,6 +60,11 @@ func (h *SMSHandler) ListSMS(c *gin.Context) {
 	}
 
 	iccid := c.Query("iccid")
+	smsType := c.Query("type")
+	if smsType != "" && smsType != "received" && smsType != "sent" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be received or sent"})
+		return
+	}
 	allowedForView, err := allowedICCIDsForPermission(h.db, actor.User, PermViewSMS)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "permission check failed"})
@@ -68,6 +73,9 @@ func (h *SMSHandler) ListSMS(c *gin.Context) {
 	isAdmin := actor.User != nil && actor.User.Role == "admin"
 
 	query := h.db.Model(&model.SMS{}) // Start with model to allow counting
+	if smsType != "" {
+		query = query.Where("type = ?", smsType)
+	}
 
 	if iccid != "" {
 		if !enforceICCIDPermission(c, h.db, iccid, PermViewSMS) {
