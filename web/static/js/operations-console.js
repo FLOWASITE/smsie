@@ -499,7 +499,7 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
     });
     $('#btn-refresh-ops').click(loadOperationsData);
     $('#btn-export-preview').click(function () {
-        const blob = new Blob([buildOpsCsv(opsState.messages)], { type: 'text/csv;charset=utf-8' });
+        const blob = new Blob(['\ufeff', buildOpsCsv(opsState.messages)], { type: 'text/csv;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;

@@ -389,6 +389,7 @@ function loadI18n(lang) {
 }
 
 function applyI18n(data) {
+    document.documentElement.lang = currentLang;
     $('[data-i18n]').each(function () {
         const key = $(this).data('i18n');
         if (data[key]) {
