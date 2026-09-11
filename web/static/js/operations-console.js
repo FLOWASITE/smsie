@@ -5,6 +5,19 @@ const opsState = {
     loadedAt: null
 };
 
+function groupOpsMessages(messages) {
+    const byPhone = new Map();
+    (messages || []).forEach(message => {
+        const phone = message.phone || 'Không rõ số';
+        if (!byPhone.has(phone)) byPhone.set(phone, []);
+        byPhone.get(phone).push(message);
+    });
+    return Array.from(byPhone, ([phone, items]) => {
+        const sorted = items.slice().sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
+        return { phone, messages: sorted, latest: sorted[sorted.length - 1] };
+    }).sort((left, right) => new Date(right.latest.timestamp) - new Date(left.latest.timestamp));
+}
+
 function opsElement(tag, className, text) {
     const element = $(`<${tag}>`);
     if (className) element.addClass(className);
@@ -140,6 +153,94 @@ function renderRecentMessages() {
     });
 }
 
+function opsMessageStatus(message) {
+    if (message.type === 'received') return { label: 'Tin nhận', className: 'received' };
+    const status = String(message.status || 'sent').toLowerCase();
+    const labels = {
+        queued: 'Đang chờ',
+        sending: 'Đang gửi',
+        sent: 'Đã gửi',
+        delivered: 'Đã giao',
+        failed: 'Thất bại',
+        undelivered: 'Không giao được'
+    };
+    return { label: labels[status] || status, className: status };
+}
+
+function renderConversationThread(thread, container) {
+    container.empty();
+    const header = opsElement('header', 'conversation-detail-head');
+    const identity = opsElement('div');
+    identity.append(opsElement('div', 'eyebrow', 'Hội thoại SMS'));
+    identity.append(opsElement('h2', '', thread.phone));
+    identity.append(opsElement('div', 'ops-list-note', `${thread.messages.length} tin nhắn`));
+    header.append(identity);
+
+    const latest = thread.latest || {};
+    const compose = opsElement('button', 'btn btn-dark btn-sm', 'Soạn tin');
+    compose.attr('type', 'button').click(function () {
+        const iccid = latest.iccid || (opsState.modems[0] && opsState.modems[0].iccid);
+        if (!iccid || typeof showSMSModal !== 'function') return;
+        showSMSModal(iccid);
+        $('#sms-phone').val(thread.phone);
+    });
+    header.append(compose);
+    container.append(header);
+
+    const timeline = opsElement('div', 'message-timeline');
+    thread.messages.forEach(message => {
+        const outgoing = message.type === 'sent';
+        const bubble = opsElement('article', `message-bubble ${outgoing ? 'is-outgoing' : 'is-incoming'}`);
+        bubble.append(opsElement('div', 'message-copy', message.content || 'Không có nội dung'));
+        const meta = opsElement('div', 'message-meta');
+        const status = opsMessageStatus(message);
+        meta.append(opsElement('span', `message-status status-${status.className}`, status.label));
+        meta.append(opsElement('time', '', new Date(message.timestamp).toLocaleString('vi-VN')));
+        bubble.append(meta);
+        timeline.append(bubble);
+    });
+    container.append(timeline);
+}
+
+function renderConversationInbox(messages) {
+    opsState.currentMessages = messages || [];
+    const query = String($('#sms-search').val() || '').trim().toLowerCase();
+    const filtered = opsState.currentMessages.filter(message => {
+        if (!query) return true;
+        return String(message.phone || '').toLowerCase().includes(query) || String(message.content || '').toLowerCase().includes(query);
+    });
+    const threads = groupOpsMessages(filtered);
+    const root = $('#sms-list').empty().addClass('conversation-grid');
+    if (!threads.length) {
+        root.removeClass('conversation-grid').append(opsElement('div', 'ops-empty', 'Không tìm thấy hội thoại phù hợp.'));
+        return;
+    }
+
+    const list = opsElement('aside', 'conversation-list');
+    const detail = opsElement('section', 'conversation-detail');
+    threads.forEach((thread, index) => {
+        const item = opsElement('button', `conversation-contact${index === 0 ? ' is-active' : ''}`);
+        item.attr('type', 'button');
+        const top = opsElement('div', 'conversation-contact-top');
+        top.append(opsElement('strong', '', thread.phone));
+        top.append(opsElement('time', '', new Date(thread.latest.timestamp).toLocaleDateString('vi-VN')));
+        item.append(top);
+        item.append(opsElement('div', 'conversation-preview', thread.latest.content || 'Không có nội dung'));
+        item.click(function () {
+            list.find('.conversation-contact').removeClass('is-active');
+            item.addClass('is-active');
+            renderConversationThread(thread, detail);
+        });
+        list.append(item);
+    });
+    root.append(list, detail);
+    renderConversationThread(threads[0], detail);
+}
+
+if (typeof window !== 'undefined') {
+    window.renderOpsMessages = renderConversationInbox;
+}
+
 function renderLiveUnassigned() {
     const container = $('#ops-live-unassigned').empty();
     const header = opsElement('div', 'ops-panel-head');
@@ -232,12 +333,19 @@ function loadOperationsData() {
     });
 }
 
-$(document).ready(function () {
+if (typeof module !== 'undefined') {
+    module.exports = { groupOpsMessages };
+}
+
+if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
     $('[data-open-view]').click(function () {
         const view = $(this).data('open-view');
         $(`#nav-${view}`).trigger('click');
     });
     $('#btn-refresh-ops').click(loadOperationsData);
+    $('#sms-search').on('input', function () {
+        renderConversationInbox(opsState.currentMessages || []);
+    });
     $('.nav-link').click(function () {
         const id = $(this).attr('id');
         if (id === 'nav-overview' || id === 'nav-slots' || id === 'nav-alerts' || id === 'nav-reports' || id === 'nav-audit' || id === 'nav-maintenance') {

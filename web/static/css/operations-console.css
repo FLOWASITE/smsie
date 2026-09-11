@@ -460,6 +460,130 @@ body {
 
 .conversation-panel {
   min-height: 420px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.conversation-grid {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.7fr) minmax(0, 1.7fr);
+  min-height: 560px;
+}
+
+.conversation-list {
+  padding: 0.7rem;
+  background: #f4f6f3;
+  border-right: 1px solid var(--ops-line);
+}
+
+.conversation-contact {
+  width: 100%;
+  margin: 0 0 0.35rem;
+  padding: 0.8rem;
+  color: var(--ops-ink);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+
+.conversation-contact:hover {
+  background: #ffffff;
+}
+
+.conversation-contact.is-active {
+  background: #ffffff;
+  box-shadow: inset 3px 0 0 var(--ops-accent), 0 8px 20px rgba(30, 60, 51, 0.06);
+}
+
+.conversation-contact-top,
+.conversation-detail-head,
+.message-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.conversation-contact-top time,
+.conversation-preview,
+.message-meta {
+  color: var(--ops-muted);
+  font-size: 0.72rem;
+}
+
+.conversation-preview {
+  margin-top: 0.35rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-detail {
+  min-width: 0;
+  background: #ffffff;
+}
+
+.conversation-detail-head {
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--ops-line);
+}
+
+.conversation-detail-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.message-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  max-height: 500px;
+  padding: 1.2rem;
+  overflow-y: auto;
+}
+
+.message-bubble {
+  width: min(78%, 620px);
+  padding: 0.8rem 0.9rem;
+  border-radius: 10px;
+}
+
+.message-bubble.is-incoming {
+  align-self: flex-start;
+  background: #f0f3ef;
+  border-bottom-left-radius: 3px;
+}
+
+.message-bubble.is-outgoing {
+  align-self: flex-end;
+  background: #dfeee9;
+  border-bottom-right-radius: 3px;
+}
+
+.message-copy {
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.message-meta {
+  margin-top: 0.45rem;
+}
+
+.message-status {
+  font-weight: 650;
+}
+
+.status-delivered,
+.status-received {
+  color: var(--ops-success);
+}
+
+.status-failed,
+.status-undelivered {
+  color: var(--ops-danger);
 }
 
 .schedule-card,
@@ -552,6 +676,17 @@ body {
   .ops-kpi-grid,
   .slot-grid-32 {
     grid-template-columns: 1fr;
+  }
+
+  .conversation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .conversation-list {
+    max-height: 210px;
+    overflow-y: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--ops-line);
   }
 
   .ops-kpi {

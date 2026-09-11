@@ -472,6 +472,12 @@ function loadSMS(page = 1) {
         const data = resp.data || [];
         const total = resp.total || 0;
 
+        if (window.renderOpsMessages) {
+            window.renderOpsMessages(data);
+            renderPagination(total, page);
+            return;
+        }
+
         if (data.length === 0) {
             list.append($('<div>').addClass('text-center text-muted p-3').text(window.t('no_messages')));
         } else {
