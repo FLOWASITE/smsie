@@ -163,6 +163,7 @@ func main() {
 				adminGroup.POST("/webhooks", wh.CreateWebhook)
 				adminGroup.DELETE("/webhooks/:id", wh.DeleteWebhook)
 				adminGroup.DELETE("/modems/:iccid", mh.DeleteModem)
+				adminGroup.PATCH("/modems/:iccid/profile", mh.UpdateProfile)
 
 				adminGroup.GET("/users", uh.ListUsers)
 				adminGroup.POST("/users", uh.CreateUser)

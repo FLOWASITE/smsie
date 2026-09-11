@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/pccr10001/smsie/internal/worker"
 	"gorm.io/gorm"
 )
+
+var phoneNumberPattern = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
 
 type ModemHandler struct {
 	db      *gorm.DB
@@ -381,6 +384,89 @@ func (h *ModemHandler) UpdateModem(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload modem"})
 		return
 	}
+	c.JSON(http.StatusOK, h.modemWithWorkerState(modem))
+}
+
+func (h *ModemHandler) UpdateProfile(c *gin.Context) {
+	actor, ok := getActor(c)
+	if !ok || actor.User == nil || actor.User.Role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	iccid := strings.TrimSpace(c.Param("iccid"))
+	var req struct {
+		SlotNumber   *int    `json:"slot_number"`
+		PhoneNumber  *string `json:"phone_number"`
+		HardwarePath *string `json:"hardware_path"`
+		BalanceVND   *int64  `json:"balance_vnd"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid profile data"})
+		return
+	}
+	if req.SlotNumber != nil && (*req.SlotNumber < 1 || *req.SlotNumber > 32) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "slot_number must be between 1 and 32"})
+		return
+	}
+	if req.PhoneNumber != nil {
+		phone := strings.TrimSpace(*req.PhoneNumber)
+		if phone != "" && !phoneNumberPattern.MatchString(phone) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "phone_number must contain 9 to 15 digits"})
+			return
+		}
+		*req.PhoneNumber = phone
+	}
+	if req.HardwarePath != nil {
+		path := strings.TrimSpace(*req.HardwarePath)
+		if len(path) > 512 || strings.ContainsAny(path, "\r\n\x00") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "hardware_path is invalid"})
+			return
+		}
+		*req.HardwarePath = path
+	}
+	if req.BalanceVND != nil && *req.BalanceVND < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "balance_vnd cannot be negative"})
+		return
+	}
+
+	var modem model.Modem
+	if err := h.db.First(&modem, "iccid = ?", iccid).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Modem not found"})
+		return
+	}
+	if req.SlotNumber != nil {
+		var conflict int64
+		h.db.Model(&model.Modem{}).Where("iccid <> ? AND slot_number = ?", iccid, *req.SlotNumber).Count(&conflict)
+		if conflict > 0 {
+			c.JSON(http.StatusConflict, gin.H{"error": "slot already assigned to another SIM"})
+			return
+		}
+	}
+
+	updates := map[string]interface{}{}
+	if req.SlotNumber != nil {
+		updates["slot_number"] = *req.SlotNumber
+	}
+	if req.PhoneNumber != nil {
+		updates["phone_number"] = *req.PhoneNumber
+	}
+	if req.HardwarePath != nil {
+		updates["hardware_path"] = *req.HardwarePath
+	}
+	if req.BalanceVND != nil {
+		updates["balance_vnd"] = *req.BalanceVND
+		updates["balance_updated_at"] = time.Now()
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No profile fields supplied"})
+		return
+	}
+	if err := h.db.Model(&model.Modem{}).Where("iccid = ?", iccid).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update modem profile"})
+		return
+	}
+	h.db.First(&modem, "iccid = ?", iccid)
 	c.JSON(http.StatusOK, h.modemWithWorkerState(modem))
 }
 

@@ -354,6 +354,24 @@ body {
   width: 145px;
 }
 
+.hardware-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.balance-line {
+  margin-top: 0.6rem;
+  color: #234d43;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.balance-input {
+  width: 116px;
+  font-family: "IBM Plex Mono", monospace;
+}
+
 .health-dot {
   display: inline-flex;
   align-items: center;

@@ -102,6 +102,19 @@ function opsSignalLabel(signal) {
     return 'Không có';
 }
 
+function opsMoney(value) {
+    return `${Number(value || 0).toLocaleString('vi-VN')} đ`;
+}
+
+function saveModemProfile(iccid, profile) {
+    return $.ajax({
+        url: `/api/v1/modems/${encodeURIComponent(iccid)}/profile`,
+        method: 'PATCH',
+        contentType: 'application/json',
+        data: JSON.stringify(profile)
+    });
+}
+
 function opsMappedModems() {
     return opsState.modems.filter(modem => opsState.previewMappings[modem.iccid]);
 }
@@ -343,11 +356,23 @@ function renderLiveUnassigned() {
         button.attr('type', 'button').click(function () {
             const slot = Number(select.val());
             if (!slot) return;
-            opsState.previewMappings[modem.iccid] = slot;
-            opsState.phoneNumbers[modem.iccid] = String(phoneInput.val() || '').trim();
-            saveOpsProfiles();
-            renderOperationsConsole();
-            if (!$('#view-sms').hasClass('d-none')) loadSMS(currentSMSPage);
+            const phone = String(phoneInput.val() || '').trim();
+            button.prop('disabled', true).text('Đang lưu…');
+            saveModemProfile(modem.iccid, { slot_number: slot, phone_number: phone })
+                .done(function (saved) {
+                    modem.slot_number = saved.slot_number;
+                    modem.phone_number = saved.phone_number;
+                    opsState.previewMappings[modem.iccid] = slot;
+                    opsState.phoneNumbers[modem.iccid] = phone;
+                    saveOpsProfiles();
+                    renderOperationsConsole();
+                    if (!$('#view-sms').hasClass('d-none')) loadSMS(currentSMSPage);
+                })
+                .fail(function (xhr) {
+                    button.prop('disabled', false).text('Gán thử');
+                    const message = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được hồ sơ';
+                    phoneInput.addClass('is-invalid').attr('title', message);
+                });
         });
         row.append(opsElement('div', 'unassigned-actions').append(phoneInput, select, button));
         container.append(row);
@@ -371,6 +396,8 @@ function renderSlotGrid() {
         card.append(opsElement('div', 'slot-state', modem ? (opsState.phoneNumbers[modem.iccid] || modem.name || modem.port_name || modem.iccid) : 'Chưa gán SIM'));
         card.append(opsElement('div', 'slot-meta', modem ? `${modem.port_name} · ${opsSignalLabel(modem.signal_strength)} ${modem.signal_strength || 0}%` : 'Sẵn sàng nhận mapping'));
         if (modem) card.append(opsElement('div', 'slot-meta mono', `ICCID ${modem.iccid} · IMEI ${modem.imei || '—'}`));
+        if (modem) card.append(opsElement('div', 'slot-meta', `Số dư ${opsMoney(modem.balance_vnd)} · ${modem.balance_updated_at ? new Date(modem.balance_updated_at).toLocaleString('vi-VN') : 'chưa kiểm tra'}`));
+        if (modem && modem.hardware_path) card.append(opsElement('div', 'slot-meta hardware-path', modem.hardware_path));
         if (modem) {
             const reset = opsElement('button', 'text-action mt-2', 'Bỏ mapping preview');
             reset.attr('type', 'button').click(function () {
@@ -411,10 +438,26 @@ function renderMaintenancePreview() {
         const card = opsElement('article', 'schedule-card');
         const main = opsElement('div', 'schedule-main');
         main.append(opsElement('div', 'schedule-title', `${slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán khe'} · ${modem.port_name || modem.iccid}`));
-        main.append(opsElement('div', 'ops-list-note', `${modem.iccid} · ${modem.operator || 'Chưa rõ nhà mạng'} · sóng ${modem.signal_strength || 0}%`));
+        main.append(opsElement('div', 'ops-list-note', `${opsState.phoneNumbers[modem.iccid] || 'Chưa biết số'} · ${modem.iccid} · ${modem.operator || 'Chưa rõ nhà mạng'} · sóng ${modem.signal_strength || 0}%`));
+        main.append(opsElement('div', 'balance-line', `Số dư hiện tại ${opsMoney(modem.balance_vnd)} · ${modem.balance_updated_at ? `cập nhật ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : 'chưa kiểm tra'}`));
         main.append(opsElement('div', 'schedule-rule', 'Mỗi tháng · gọi thử hoặc SMS · tối đa 1 lần thành công'));
         const controls = opsElement('div', 'schedule-controls');
         controls.append(opsElement('span', `status-chip ${slot ? 'status-ready' : 'status-blocked'}`, slot ? 'Sẵn sàng cấu hình' : 'Cần mapping'));
+        const balanceInput = $('<input>').addClass('form-control form-control-sm balance-input').attr({ type: 'number', min: '0', step: '1000', 'aria-label': `Số dư ${modem.phone_number || modem.iccid}` }).val(modem.balance_vnd || 0);
+        const balanceButton = opsElement('button', 'btn btn-sm btn-outline-secondary', 'Lưu số dư');
+        balanceButton.attr('type', 'button').click(function () {
+            const balance = Number(balanceInput.val());
+            if (!Number.isFinite(balance) || balance < 0) return;
+            balanceButton.prop('disabled', true).text('Đang lưu…');
+            saveModemProfile(modem.iccid, { balance_vnd: Math.round(balance) })
+                .done(function (saved) {
+                    modem.balance_vnd = saved.balance_vnd;
+                    modem.balance_updated_at = saved.balance_updated_at;
+                    renderOperationsConsole();
+                })
+                .fail(function () { balanceButton.prop('disabled', false).text('Lưu số dư'); });
+        });
+        controls.append(balanceInput, balanceButton);
         controls.append($('<button>').addClass('btn btn-sm btn-outline-secondary').prop('disabled', true).text('Chưa kích hoạt'));
         card.append(main, controls);
         list.append(card);
@@ -524,6 +567,10 @@ function loadOperationsData() {
     ).done(function (modemResponse, smsResponse) {
         opsState.modems = modemResponse[0] || [];
         opsState.messages = (smsResponse[0] && smsResponse[0].data) || [];
+        opsState.modems.forEach(modem => {
+            if (modem.slot_number) opsState.previewMappings[modem.iccid] = modem.slot_number;
+            if (modem.phone_number) opsState.phoneNumbers[modem.iccid] = modem.phone_number;
+        });
         opsState.loadedAt = new Date();
         renderOperationsConsole();
     }).fail(function () {
