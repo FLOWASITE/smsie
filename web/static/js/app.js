@@ -304,7 +304,10 @@ $(document).ready(function () {
     $('#lang-select').change(function () {
         currentLang = $(this).val();
         localStorage.setItem('sms_lang', currentLang);
-        loadI18n(currentLang);
+        loadI18n(currentLang).then(() => {
+            if (!$('#view-sms').hasClass('d-none')) loadSMS(currentSMSPage);
+            if (!$('#view-modems').hasClass('d-none')) loadModems();
+        });
     });
 
     // Nav
