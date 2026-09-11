@@ -18,6 +18,7 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
     />
+    <link rel="stylesheet" href="/static/css/operations-console.css" />
     <style>
       :root {
         --bg-a: #f7efe2;
@@ -320,8 +321,16 @@
           </div>
 
           <nav class="nav flex-column">
-            <a class="nav-link active" href="#" id="nav-sms"><i class="bi bi-chat-left-text"></i> <span data-i18n="nav_sms">Messages</span></a>
-            <a class="nav-link" href="#" id="nav-modems"><i class="bi bi-sim"></i> <span data-i18n="nav_modems">Modems</span></a>
+            <div class="nav-kicker">Vận hành</div>
+            <a class="nav-link active" href="#" id="nav-overview"><i class="bi bi-grid-1x2"></i> <span>Tổng quan</span></a>
+            <a class="nav-link" href="#" id="nav-slots"><i class="bi bi-hdd-rack"></i> <span>Khe SIM</span></a>
+            <a class="nav-link" href="#" id="nav-sms"><i class="bi bi-chat-left-text"></i> <span>Hội thoại</span></a>
+            <a class="nav-link" href="#" id="nav-maintenance"><i class="bi bi-calendar2-check"></i> <span>Lịch duy trì</span></a>
+            <a class="nav-link" href="#" id="nav-alerts"><i class="bi bi-bell"></i> <span>Cảnh báo</span><span id="nav-alert-count" class="nav-count">0</span></a>
+            <a class="nav-link" href="#" id="nav-reports"><i class="bi bi-bar-chart"></i> <span>Báo cáo</span></a>
+            <a class="nav-link" href="#" id="nav-audit"><i class="bi bi-journal-text"></i> <span>Nhật ký</span></a>
+            <div class="nav-kicker nav-kicker-admin">Quản trị</div>
+            <a class="nav-link" href="#" id="nav-modems"><i class="bi bi-usb-symbol"></i> <span>Thiết bị</span></a>
             <a class="nav-link" href="#" id="nav-apikeys"><i class="bi bi-key"></i> <span data-i18n="nav_apikeys">API Key</span></a>
             <a class="nav-link" href="#" id="nav-users"><i class="bi bi-people"></i> <span data-i18n="nav_users">Users</span></a>
           </nav>
@@ -340,10 +349,79 @@
         </aside>
 
         <main class="main glass fade-rise">
-          <section id="view-sms" class="view-section">
+          <section id="view-overview" class="view-section ops-view">
+            <header class="ops-page-head">
+              <div>
+                <div class="eyebrow">Modem pool · 32 khe</div>
+                <h1>Tổng quan vận hành</h1>
+                <p>Theo dõi SIM, tin nhắn và các lỗi cần xử lý trong một màn hình.</p>
+              </div>
+              <div class="ops-head-actions">
+                <span class="live-indicator"><span></span>Dữ liệu trực tiếp</span>
+                <button id="btn-refresh-ops" class="btn btn-dark"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
+              </div>
+            </header>
+
+            <div id="ops-kpis" class="ops-kpi-grid" aria-live="polite"></div>
+
+            <div class="ops-dashboard-grid">
+              <section class="ops-panel ops-pool-panel">
+                <div class="ops-panel-head">
+                  <div>
+                    <span class="eyebrow">Tình trạng phần cứng</span>
+                    <h2>Bản đồ modem pool</h2>
+                  </div>
+                  <button class="text-action" data-open-view="slots">Xem 32 khe <i class="bi bi-arrow-right"></i></button>
+                </div>
+                <div id="ops-mini-slots" class="mini-slot-grid" aria-label="Tóm tắt 32 khe SIM"></div>
+                <div id="ops-unassigned" class="unassigned-strip"></div>
+              </section>
+
+              <aside class="ops-panel ops-attention-panel">
+                <div class="ops-panel-head">
+                  <div>
+                    <span class="eyebrow">Cần chú ý</span>
+                    <h2>Cảnh báo gần nhất</h2>
+                  </div>
+                </div>
+                <div id="ops-alert-summary" class="alert-stack"></div>
+              </aside>
+            </div>
+
+            <section class="ops-panel ops-activity-panel">
+              <div class="ops-panel-head">
+                <div>
+                  <span class="eyebrow">Hoạt động</span>
+                  <h2>Tin nhắn gần đây</h2>
+                </div>
+                <button class="text-action" data-open-view="sms">Mở hội thoại <i class="bi bi-arrow-right"></i></button>
+              </div>
+              <div id="ops-recent-messages" class="activity-list"></div>
+            </section>
+          </section>
+
+          <section id="view-slots" class="view-section ops-view d-none">
+            <header class="ops-page-head">
+              <div>
+                <div class="eyebrow">Khe vật lý ↔ cổng COM ↔ SIM</div>
+                <h1>Bản đồ 32 khe SIM</h1>
+                <p>Gán đúng khe trước khi bật lịch duy trì hoặc gửi tin.</p>
+              </div>
+              <div class="preview-badge">Preview · chưa lưu mapping</div>
+            </header>
+            <div id="ops-slot-toolbar" class="ops-toolbar"></div>
+            <div id="ops-live-unassigned" class="ops-panel mb-3"></div>
+            <div id="ops-slot-grid" class="slot-grid-32" aria-live="polite"></div>
+          </section>
+
+          <section id="view-sms" class="view-section ops-view d-none">
             <div class="view-head">
-              <h2 class="view-title" data-i18n="sms_title">Inbox</h2>
+              <div>
+                <div class="eyebrow">SMS hai chiều</div>
+                <h1 class="view-title">Hội thoại</h1>
+              </div>
               <div class="d-flex gap-2">
+                <input id="sms-search" type="search" class="form-control" placeholder="Tìm số điện thoại hoặc nội dung" aria-label="Tìm tin nhắn" />
                 <select id="sms-filter-type" class="form-select">
                   <option value="" data-i18n="all_messages">All Messages</option>
                   <option value="received" data-i18n="received">Received</option>
@@ -355,9 +433,66 @@
                 <button id="btn-refresh-sms" class="btn btn-outline-secondary" title="Refresh"><i class="bi bi-arrow-repeat"></i></button>
               </div>
             </div>
-            <div class="panel">
+            <div class="panel conversation-panel">
               <div id="sms-list"></div>
               <div id="sms-pagination" class="d-flex justify-content-center mt-3 gap-2"></div>
+            </div>
+          </section>
+
+          <section id="view-maintenance" class="view-section ops-view d-none">
+            <header class="ops-page-head">
+              <div>
+                <div class="eyebrow">Duy trì hoạt động SIM</div>
+                <h1>Lịch gọi và SMS</h1>
+                <p>Thiết kế lịch theo từng SIM, có giới hạn cước và không gửi trùng.</p>
+              </div>
+              <div class="preview-badge">Mô phỏng · chưa kích hoạt</div>
+            </header>
+            <div id="ops-maintenance-summary" class="ops-kpi-grid"></div>
+            <div id="ops-schedule-list" class="schedule-list"></div>
+          </section>
+
+          <section id="view-alerts" class="view-section ops-view d-none">
+            <header class="ops-page-head">
+              <div>
+                <div class="eyebrow">Phát hiện sớm</div>
+                <h1>Trung tâm cảnh báo</h1>
+                <p>Ưu tiên lỗi mất SIM, mất COM, sóng yếu và giao dịch bị kẹt.</p>
+              </div>
+            </header>
+            <div id="ops-alert-list" class="alert-center"></div>
+          </section>
+
+          <section id="view-reports" class="view-section ops-view d-none">
+            <header class="ops-page-head">
+              <div>
+                <div class="eyebrow">Theo dõi hiệu quả</div>
+                <h1>Báo cáo vận hành</h1>
+                <p>Thống kê theo SIM, chiều tin nhắn, trạng thái và thời gian.</p>
+              </div>
+              <button id="btn-export-preview" class="btn btn-dark"><i class="bi bi-download"></i> Xuất CSV</button>
+            </header>
+            <div id="ops-report-kpis" class="ops-kpi-grid"></div>
+            <div class="ops-dashboard-grid report-grid">
+              <section class="ops-panel"><div id="ops-message-chart" class="chart-shell"></div></section>
+              <section class="ops-panel"><div id="ops-health-breakdown"></div></section>
+            </div>
+          </section>
+
+          <section id="view-audit" class="view-section ops-view d-none">
+            <header class="ops-page-head">
+              <div>
+                <div class="eyebrow">Truy vết thao tác</div>
+                <h1>Nhật ký và phân quyền</h1>
+                <p>Ai thao tác, dùng SIM nào, kết quả ra sao.</p>
+              </div>
+              <div class="preview-badge">Preview dữ liệu hiện có</div>
+            </header>
+            <div class="ops-panel table-responsive">
+              <table class="table ops-table align-middle mb-0">
+                <thead><tr><th>Thời gian</th><th>Người dùng</th><th>Hành động</th><th>Đối tượng</th><th>Kết quả</th></tr></thead>
+                <tbody id="ops-audit-body"></tbody>
+              </table>
             </div>
           </section>
 
@@ -850,6 +985,7 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/app.js"></script>
+    <script src="/static/js/operations-console.js"></script>
   </body>
 </html>
 
