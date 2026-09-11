@@ -22,11 +22,19 @@ let lastAPIKeySecret = '';
 let callWS = null;
 let callPC = null;
 let callLocalStream = null;
+let callRemoteStream = null;
+let callPlaybackAudio = null;
 let callWSState = 'idle';
 let callStatePollTimer = null;
 let modemSettingsRefreshTimer = null;
 
 function closeCallSignaling() {
+    callRemoteStream = null;
+    if (callPlaybackAudio) {
+        callPlaybackAudio.pause();
+        callPlaybackAudio.srcObject = null;
+        callPlaybackAudio = null;
+    }
     if (callLocalStream) {
         callLocalStream.getTracks().forEach(t => t.stop());
         callLocalStream = null;
@@ -67,7 +75,9 @@ function refreshCallStateUI(iccid) {
         const callState = state && state.state ? String(state.state) : 'idle';
         const callActive = callState === 'dialing' || callState === 'in_call';
 
-        $('#call-status').text(`Call state: ${callState}${state && state.reason ? ` (${state.reason})` : ''}`);
+        const stateLabels = { idle: 'Sẵn sàng', dialing: 'Đang gọi', in_call: 'Đang kết nối' };
+        $('#call-status').text(`${stateLabels[callState] || callState}${state && state.reason ? ` · ${state.reason}` : ''}`);
+        if (window.smsieCallConsole && window.smsieCallConsole.onCallState) window.smsieCallConsole.onCallState(callState);
 
         if (hasUACFlag && !uacReady) {
             $('#call-panel').addClass('d-none');
@@ -141,10 +151,12 @@ async function ensureCallSignaling(iccid) {
     callPC.ontrack = (event) => {
         const [remoteStream] = event.streams;
         if (!remoteStream) return;
-        const audio = new Audio();
-        audio.srcObject = remoteStream;
-        audio.autoplay = true;
-        audio.play().catch(() => { });
+        callRemoteStream = remoteStream;
+        callPlaybackAudio = new Audio();
+        callPlaybackAudio.srcObject = remoteStream;
+        callPlaybackAudio.autoplay = true;
+        callPlaybackAudio.play().catch(() => { });
+        if (window.smsieCallConsole && window.smsieCallConsole.attachRemoteStream) window.smsieCallConsole.attachRemoteStream(remoteStream);
     };
 
     callPC.onicecandidate = (event) => {
@@ -203,6 +215,8 @@ async function ensureCallSignaling(iccid) {
 
     await waitConnected;
 }
+
+window.getSmsieCallStreams = () => ({ localStream: callLocalStream, remoteStream: callRemoteStream });
 
 $.ajaxSetup({
     beforeSend: function (xhr) {
@@ -315,6 +329,9 @@ function activateAppRoute() {
     if (route.view === 'sms') {
         $('#sms-filter-modem').val(route.iccid);
         loadSMS(1);
+    }
+    if (route.view === 'calls' && window.smsieCallConsole && window.smsieCallConsole.activate) {
+        window.smsieCallConsole.activate(route.iccid);
     }
     if (route.view === 'modems') loadModems();
     if (route.view === 'apikeys') loadAPIKeys();
@@ -1253,29 +1270,10 @@ $(document).on('click', '#btn-delete-modem', function () {
 });
 
 window.showCallModal = function (iccid) {
-    $('#call-iccid-title').text(iccid);
-    $('#call-iccid').val(iccid);
     $('#call-phone').val('');
-    $('#call-status').text('Call state: idle');
-    $('#call-panel').addClass('d-none');
-    $('#call-not-ready').addClass('d-none').text('');
-    stopCallStatePolling();
-    closeCallSignaling();
-
-    refreshCallStateUI(iccid);
-    callStatePollTimer = setInterval(function () {
-        if ($('#callModal').hasClass('show')) {
-            refreshCallStateUI(iccid);
-        }
-    }, 2000);
-
-    $('#callModal').modal('show');
+    $('#call-status').text('Sẵn sàng');
+    navigateApp('calls', iccid);
 }
-
-$('#callModal').on('hidden.bs.modal', function () {
-    stopCallStatePolling();
-    closeCallSignaling();
-});
 
 $(document).on('click', '#btn-call-dial', function () {
     const iccid = $('#call-iccid').val();
@@ -1314,6 +1312,11 @@ $(document).on('click', '#btn-call-dial', function () {
                 const state = resp && resp.call_state ? resp.call_state.state : 'dialing';
                 const reason = resp && resp.call_state ? resp.call_state.reason : '';
                 statusDiv.html(`<span class="text-success">Call state: ${state}${reason ? ` (${reason})` : ''}</span>`);
+                if (window.smsieCallConsole && window.smsieCallConsole.beginRecording) {
+                    window.smsieCallConsole.beginRecording(iccid, number).catch(function (error) {
+                        $('#call-recording-status').addClass('is-danger').text(error.message || 'Không khởi tạo được ghi âm.');
+                    });
+                }
                 refreshCallStateUI(iccid);
             },
             error: function (xhr) {
@@ -1335,6 +1338,13 @@ $(document).on('click', '#btn-call-dial', function () {
     })();
 });
 
+$(document).on('keydown', '#call-phone', function (event) {
+    if (event.key === 'Enter' && !$('#btn-call-dial').prop('disabled')) {
+        event.preventDefault();
+        $('#btn-call-dial').trigger('click');
+    }
+});
+
 $(document).on('click', '#btn-call-hangup', function () {
     const iccid = $('#call-iccid').val();
     const statusDiv = $('#call-status');
@@ -1354,6 +1364,9 @@ $(document).on('click', '#btn-call-hangup', function () {
             const state = resp && resp.call_state ? resp.call_state.state : 'idle';
             const reason = resp && resp.call_state ? resp.call_state.reason : '';
             statusDiv.html(`<span class="text-success">Call state: ${state}${reason ? ` (${reason})` : ''}</span>`);
+            if (window.smsieCallConsole && window.smsieCallConsole.finishRecording) {
+                window.smsieCallConsole.finishRecording(false);
+            }
             closeCallSignaling();
             refreshCallStateUI(iccid);
         },

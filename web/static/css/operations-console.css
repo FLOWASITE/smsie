@@ -970,6 +970,409 @@ body {
   text-transform: uppercase;
 }
 
+.call-state-badge,
+.call-device-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #536c65;
+  background: #edf3f0;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.call-state-badge {
+  min-height: 38px;
+  padding: 0.55rem 0.8rem;
+}
+
+.call-state-badge.is-active {
+  color: #ffffff;
+  background: var(--ops-accent);
+}
+
+.call-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.7fr);
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.call-dialer-panel,
+.call-keypad-panel {
+  min-height: 540px;
+}
+
+.call-dialer-panel {
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+}
+
+.call-device-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.35rem;
+  border-bottom: 1px solid var(--ops-line);
+}
+
+.call-device-avatar {
+  flex: 0 0 auto;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  color: #087563;
+  background: var(--ops-accent-soft);
+  border-radius: 50%;
+  font-size: 1.45rem;
+}
+
+.call-device-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.call-device-copy .eyebrow {
+  margin-bottom: 0.25rem;
+}
+
+.call-device-copy h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ops-ink);
+  font-size: 1.15rem;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-device-copy p {
+  margin: 0.3rem 0 0;
+  overflow: hidden;
+  color: var(--ops-muted);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-device-status {
+  padding: 0.4rem 0.6rem;
+  white-space: nowrap;
+}
+
+.call-device-status i {
+  color: #a6b1ad;
+  font-size: 0.45rem;
+}
+
+.call-device-status.is-online {
+  color: #167553;
+  background: #e2f2e9;
+}
+
+.call-device-status.is-online i {
+  color: var(--ops-success);
+}
+
+.call-select {
+  min-height: 46px;
+  border-color: var(--ops-line);
+  border-radius: 8px;
+}
+
+.call-number-block {
+  margin-top: 1.5rem;
+}
+
+.call-number-input {
+  min-height: 68px;
+  padding: 0.75rem 1rem;
+  color: var(--ops-ink);
+  border-color: var(--ops-line);
+  border-radius: 10px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: clamp(1.25rem, 2.2vw, 1.85rem);
+  letter-spacing: 0.035em;
+}
+
+.call-number-input:focus {
+  border-color: var(--ops-accent);
+  box-shadow: 0 0 0 0.2rem rgba(15, 139, 120, 0.12);
+}
+
+.call-primary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.call-button {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border-radius: 9px;
+  font-weight: 680;
+}
+
+.call-button-dial {
+  color: #ffffff;
+  background: var(--ops-dark);
+  border-color: var(--ops-dark);
+}
+
+.call-button-dial:hover,
+.call-button-dial:focus {
+  color: #ffffff;
+  background: #0a302b;
+  border-color: #0a302b;
+}
+
+.call-button-hangup {
+  color: #b62f42;
+  background: #fff1f3;
+  border-color: #f3c9d0;
+}
+
+.call-button-hangup:hover,
+.call-button-hangup:focus {
+  color: #ffffff;
+  background: var(--ops-danger);
+  border-color: var(--ops-danger);
+}
+
+.call-live-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  background: #f3f7f5;
+  border-radius: 9px;
+}
+
+.call-live-strip > div:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.call-live-label {
+  color: var(--ops-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#call-status {
+  color: #34514a;
+  font-size: 0.84rem;
+}
+
+.call-duration-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+#call-duration {
+  color: var(--ops-ink);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.recording-pulse {
+  width: 9px;
+  height: 9px;
+  background: var(--ops-danger);
+  border-radius: 50%;
+  box-shadow: 0 0 0 5px rgba(239, 77, 92, 0.12);
+  animation: recording-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes recording-pulse {
+  50% { box-shadow: 0 0 0 9px rgba(239, 77, 92, 0.03); }
+}
+
+.call-record-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding: 0.9rem;
+  cursor: pointer;
+  border: 1px solid var(--ops-line);
+  border-radius: 9px;
+}
+
+.call-record-toggle strong,
+.call-record-toggle small {
+  display: block;
+}
+
+.call-record-toggle small {
+  margin-top: 0.15rem;
+  color: var(--ops-muted);
+  font-size: 0.73rem;
+  line-height: 1.4;
+}
+
+.call-record-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  color: #b62f42;
+  background: #fff0f2;
+  border-radius: 50%;
+}
+
+.call-recording-status {
+  min-height: 1.4rem;
+  margin-top: 0.55rem;
+  color: var(--ops-muted);
+  font-size: 0.76rem;
+}
+
+.call-recording-status.is-success { color: var(--ops-success); }
+.call-recording-status.is-danger { color: var(--ops-danger); }
+.call-recording-status.is-live { color: #b62f42; }
+
+.call-keypad-panel {
+  padding: clamp(1.25rem, 2.4vw, 1.75rem);
+}
+
+.call-keypad-mark {
+  color: #9baca6;
+  font-size: 1.2rem;
+}
+
+.call-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.call-keypad-grid .btn-dtmf {
+  aspect-ratio: 1.25;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.08rem;
+  color: var(--ops-ink);
+  background: #f7faf8;
+  border: 1px solid var(--ops-line);
+  border-radius: 10px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 1.18rem;
+  font-weight: 650;
+}
+
+.call-keypad-grid .btn-dtmf small {
+  min-height: 0.8rem;
+  color: #91a09b;
+  font-family: Inter, sans-serif;
+  font-size: 0.52rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+}
+
+.call-keypad-grid .btn-dtmf:not(:disabled):hover {
+  color: #ffffff;
+  background: var(--ops-accent);
+  border-color: var(--ops-accent);
+}
+
+.call-keypad-grid .btn-dtmf:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.call-keypad-note {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 1rem;
+  color: var(--ops-muted);
+  font-size: 0.74rem;
+}
+
+.call-recordings-panel {
+  padding: clamp(1.15rem, 2vw, 1.5rem);
+}
+
+.call-recording-player {
+  width: min(100%, 340px);
+  height: 38px;
+}
+
+.call-recording-list {
+  display: grid;
+}
+
+.call-recording-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--ops-line);
+}
+
+.call-recording-play {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  background: var(--ops-accent);
+  border: 0;
+  border-radius: 50%;
+}
+
+.call-recording-copy {
+  min-width: 0;
+}
+
+.call-recording-copy strong,
+.call-recording-copy span {
+  display: block;
+}
+
+.call-recording-copy span {
+  margin-top: 0.2rem;
+  color: var(--ops-muted);
+  font-size: 0.74rem;
+}
+
+.call-recording-empty {
+  min-height: 150px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.4rem;
+  color: var(--ops-muted);
+  text-align: center;
+}
+
+.call-recording-empty i {
+  margin-bottom: 0.3rem;
+  color: #99aaa5;
+  font-size: 1.7rem;
+}
+
+.call-recording-empty strong,
+.call-recording-empty span {
+  display: block;
+}
+
 @media (max-width: 1180px) {
   .ops-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1014,6 +1417,15 @@ body {
 
   .ops-dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .call-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .call-dialer-panel,
+  .call-keypad-panel {
+    min-height: auto;
   }
 }
 
@@ -1060,6 +1472,33 @@ body {
 
   .ops-kpi {
     min-height: auto;
+  }
+
+  .call-device-card,
+  .call-recordings-panel .ops-panel-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .call-device-status {
+    margin-left: 74px;
+  }
+
+  .call-primary-actions,
+  .call-recording-row {
+    grid-template-columns: 1fr;
+  }
+
+  .call-recording-row {
+    align-items: start;
+  }
+
+  .call-recording-play {
+    display: none;
+  }
+
+  .call-recording-player {
+    width: 100%;
   }
 }
 

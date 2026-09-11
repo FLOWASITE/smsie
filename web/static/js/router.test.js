@@ -5,6 +5,7 @@ const { buildAppRoute, parseAppRoute } = require('./router.js');
 
 test('each application tab has a stable hash route', () => {
     assert.deepEqual(parseAppRoute('#/maintenance'), { view: 'maintenance', iccid: '' });
+    assert.deepEqual(parseAppRoute('#/calls/sim-1'), { view: 'calls', iccid: 'sim-1' });
     assert.equal(buildAppRoute('reports'), '#/reports');
 });
 

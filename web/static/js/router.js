@@ -1,5 +1,5 @@
 const APP_VIEWS = new Set([
-    'overview', 'slots', 'sms', 'maintenance', 'alerts', 'reports', 'audit',
+    'overview', 'slots', 'sms', 'calls', 'maintenance', 'alerts', 'reports', 'audit',
     'modems', 'apikeys', 'users'
 ]);
 

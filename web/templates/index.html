@@ -325,6 +325,7 @@
             <a class="nav-link active" href="#/overview" id="nav-overview"><i class="bi bi-grid-1x2"></i> <span>Tổng quan</span></a>
             <a class="nav-link" href="#/slots" id="nav-slots"><i class="bi bi-hdd-rack"></i> <span>Khe SIM</span></a>
             <a class="nav-link" href="#/sms" id="nav-sms"><i class="bi bi-chat-left-text"></i> <span>Hội thoại</span></a>
+            <a class="nav-link" href="#/calls" id="nav-calls"><i class="bi bi-telephone"></i> <span>Cuộc gọi</span></a>
             <a class="nav-link" href="#/maintenance" id="nav-maintenance"><i class="bi bi-calendar2-check"></i> <span>Lịch duy trì</span></a>
             <a class="nav-link" href="#/alerts" id="nav-alerts"><i class="bi bi-bell"></i> <span>Cảnh báo</span><span id="nav-alert-count" class="nav-count">0</span></a>
             <a class="nav-link" href="#/reports" id="nav-reports"><i class="bi bi-bar-chart"></i> <span>Báo cáo</span></a>
@@ -440,6 +441,96 @@
               <div id="sms-list"></div>
               <div id="sms-pagination" class="d-flex justify-content-center mt-3 gap-2"></div>
             </div>
+          </section>
+
+          <section id="view-calls" class="view-section ops-view d-none">
+            <header class="ops-page-head">
+              <div>
+                <div class="eyebrow">WebRTC · UAC modem</div>
+                <h1>Trung tâm cuộc gọi</h1>
+                <p>Chọn SIM, gọi trực tiếp từ trình duyệt và lưu bản ghi hai chiều trên máy chủ.</p>
+              </div>
+              <div id="call-state-badge" class="call-state-badge" role="status"><i class="bi bi-telephone"></i><span>Sẵn sàng</span></div>
+            </header>
+
+            <div class="call-workspace">
+              <section class="ops-panel call-dialer-panel" aria-labelledby="call-dialer-title">
+                <div class="call-device-card">
+                  <div class="call-device-avatar"><i class="bi bi-sim"></i></div>
+                  <div class="call-device-copy">
+                    <span class="eyebrow">Đường gọi đang chọn</span>
+                    <h2 id="call-selected-label">Chưa chọn SIM</h2>
+                    <p id="call-selected-meta">Chọn một modem có UAC để gọi</p>
+                  </div>
+                  <div id="call-device-status" class="call-device-status"><i class="bi bi-circle-fill"></i><span>Ngoại tuyến</span></div>
+                </div>
+
+                <label class="form-label" for="call-modem-select">SIM thực hiện cuộc gọi</label>
+                <select id="call-modem-select" class="form-select call-select" aria-describedby="call-selected-meta"></select>
+                <input type="hidden" id="call-iccid" />
+                <span id="call-iccid-title" class="visually-hidden"></span>
+
+                <div id="call-not-ready" class="alert alert-warning d-none mt-3 mb-0" role="alert"></div>
+                <div id="call-panel" class="d-none">
+                  <div class="call-number-block">
+                    <label id="call-dialer-title" class="form-label" for="call-phone">Số điện thoại</label>
+                    <input type="tel" inputmode="tel" autocomplete="tel" class="form-control call-number-input" id="call-phone" placeholder="Nhập số cần gọi" />
+                    <div class="call-primary-actions">
+                      <button class="btn call-button call-button-dial" type="button" id="btn-call-dial"><i class="bi bi-telephone-fill"></i><span>Gọi ngay</span></button>
+                      <button class="btn call-button call-button-hangup" type="button" id="btn-call-hangup" disabled><i class="bi bi-telephone-x-fill"></i><span>Kết thúc</span></button>
+                    </div>
+                  </div>
+
+                  <div class="call-live-strip" aria-live="polite">
+                    <div>
+                      <span class="call-live-label">Trạng thái</span>
+                      <strong id="call-status">Sẵn sàng</strong>
+                    </div>
+                    <div class="call-duration-wrap">
+                      <span id="call-recording-live" class="recording-pulse d-none" aria-label="Đang ghi âm"></span>
+                      <time id="call-duration">00:00</time>
+                    </div>
+                  </div>
+
+                  <label class="call-record-toggle" for="call-record-enabled">
+                    <span class="call-record-icon"><i class="bi bi-record-circle"></i></span>
+                    <span><strong>Tự động ghi âm</strong><small>Lưu cả micro và âm thanh đầu dây bên kia sau khi kết thúc.</small></span>
+                    <input class="form-check-input" type="checkbox" id="call-record-enabled" checked />
+                  </label>
+                  <div id="call-recording-status" class="call-recording-status" role="status"></div>
+                </div>
+              </section>
+
+              <aside class="ops-panel call-keypad-panel" aria-labelledby="call-keypad-title">
+                <div class="ops-panel-head">
+                  <div><span class="eyebrow">Phím trong cuộc gọi</span><h2 id="call-keypad-title">Bàn phím DTMF</h2></div>
+                  <i class="bi bi-grid-3x3-gap call-keypad-mark"></i>
+                </div>
+                <div id="call-dtmf" class="call-keypad-grid">
+                  <button type="button" class="btn-dtmf" data-tone="1" disabled>1<small></small></button>
+                  <button type="button" class="btn-dtmf" data-tone="2" disabled>2<small>ABC</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="3" disabled>3<small>DEF</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="4" disabled>4<small>GHI</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="5" disabled>5<small>JKL</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="6" disabled>6<small>MNO</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="7" disabled>7<small>PQRS</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="8" disabled>8<small>TUV</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="9" disabled>9<small>WXYZ</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="*" disabled>*<small></small></button>
+                  <button type="button" class="btn-dtmf" data-tone="0" disabled>0<small>+</small></button>
+                  <button type="button" class="btn-dtmf" data-tone="#" disabled>#<small></small></button>
+                </div>
+                <div class="call-keypad-note"><i class="bi bi-shield-check"></i><span>Phím chỉ hoạt động khi cuộc gọi đang kết nối.</span></div>
+              </aside>
+            </div>
+
+            <section class="ops-panel call-recordings-panel" aria-labelledby="call-recordings-title">
+              <div class="ops-panel-head">
+                <div><span class="eyebrow">Lưu trữ tập trung</span><h2 id="call-recordings-title">Bản ghi gần đây</h2></div>
+                <audio id="call-recording-player" class="call-recording-player" controls preload="none"></audio>
+              </div>
+              <div id="call-recording-list" class="call-recording-list" aria-live="polite"></div>
+            </section>
           </section>
 
           <section id="view-maintenance" class="view-section ops-view d-none">
@@ -915,56 +1006,6 @@
       </div>
     </div>
 
-    <div class="modal fade" id="callModal" tabindex="-1">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Voice Call: <span id="call-iccid-title" class="mono"></span></h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <input type="hidden" id="call-iccid" />
-            <div id="call-not-ready" class="alert alert-warning d-none mb-3"></div>
-            <div id="call-panel" class="d-none">
-              <div class="mb-3">
-                <label class="form-label">Destination Number</label>
-                <div class="input-group">
-                  <input type="text" class="form-control" id="call-phone" placeholder="09xxxxxxxx" />
-                  <button class="btn btn-outline-primary" type="button" id="btn-call-dial">Dial</button>
-                  <button class="btn btn-outline-danger" type="button" id="btn-call-hangup">Hangup</button>
-                </div>
-                <div id="call-status" class="mt-2 small text-secondary">Call state: idle</div>
-              </div>
-
-              <h6 class="mt-3">DTMF</h6>
-              <div id="call-dtmf" class="dtmf-grid">
-                <div class="row g-2 mb-2">
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="1">1</button></div>
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="2">2</button></div>
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="3">3</button></div>
-                </div>
-                <div class="row g-2 mb-2">
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="4">4</button></div>
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="5">5</button></div>
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="6">6</button></div>
-                </div>
-                <div class="row g-2 mb-2">
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="7">7</button></div>
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="8">8</button></div>
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="9">9</button></div>
-                </div>
-                <div class="row g-2">
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="*">*</button></div>
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="0">0</button></div>
-                  <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 btn-dtmf" data-tone="#">#</button></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div class="modal fade" id="passwordModal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -994,6 +1035,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/router.js?v=20260911-router"></script>
     <script src="/static/js/app.js?v=20260911-router"></script>
+    <script src="/static/js/call-console.js?v=20260911-calls"></script>
     <script src="/static/js/operations-console.js?v=20260911-router"></script>
   </body>
 </html>
