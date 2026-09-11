@@ -1053,7 +1053,8 @@ func (w *ModemWorker) SetOperator(oper string) error {
 
 // SendSMS sends an SMS message using PDU format
 func (w *ModemWorker) SendSMS(phoneNumber, message string) error {
-	if _, ok := w.modemSnapshot(); !ok {
+	modem, ok := w.modemSnapshot()
+	if !ok {
 		return errors.New("modem not initialized")
 	}
 
@@ -1075,7 +1076,7 @@ func (w *ModemWorker) SendSMS(phoneNumber, message string) error {
 
 	logger.Log.Infof("[%s] Sending SMS to %s: %s (PDUs: %d)", w.PortName, phoneNumber, message, len(tpdus))
 
-	return w.runATTransaction(func(session *atSession) error {
+	err = w.runATTransaction(func(session *atSession) error {
 		if _, err := session.execute("AT+CMGF=0", 5*time.Second, false); err != nil {
 			return fmt.Errorf("failed to set PDU mode: %w", err)
 		}
@@ -1127,6 +1128,21 @@ func (w *ModemWorker) SendSMS(phoneNumber, message string) error {
 		logger.Log.Infof("[%s] SMS sent successfully to %s", w.PortName, phoneNumber)
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	if err := w.smsRepo.Create(&model.SMS{
+		ICCID:     modem.ICCID,
+		Phone:     phoneNumber,
+		Content:   message,
+		Timestamp: time.Now(),
+		Type:      "sent",
+		IsRead:    true,
+	}); err != nil {
+		logger.Log.Errorf("[%s] SMS was sent but history could not be saved: %v", w.PortName, err)
+	}
+	return nil
 }
 
 func (w *ModemWorker) Reboot() error {

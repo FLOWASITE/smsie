@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/pccr10001/smsie/internal/model"
 	"go.bug.st/serial"
+	"gorm.io/gorm"
 )
 
 type scriptedPort struct {
@@ -197,5 +199,46 @@ func TestSendSMSAbortsPromptWithEscapeAfterPDUError(t *testing.T) {
 	writes := port.recordedWrites()
 	if got := writes[len(writes)-1]; got != "\x1B" {
 		t.Fatalf("cleanup write = %q, want ESC", got)
+	}
+}
+
+func TestSendSMSStoresSentMessageAfterModemAcceptsPDU(t *testing.T) {
+	initTestLogger()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.SMS{}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := NewModemWorker("test", db, nil)
+	w.setModem(&model.Modem{ICCID: "89840000000000000000"})
+	port := &scriptedPort{worker: w}
+	port.script = func(command string) []string {
+		switch {
+		case command == "AT+CMGF=0\r":
+			return []string{"OK"}
+		case strings.HasPrefix(command, "AT+CMGS="):
+			return []string{">"}
+		case strings.HasSuffix(command, "\x1A"):
+			return []string{"+CMGS: 1", "OK"}
+		default:
+			return []string{"ERROR"}
+		}
+	}
+	w.port = port
+	startTransactionWorker(t, w)
+
+	if err := w.SendSMS("+84944134544", "he"); err != nil {
+		t.Fatalf("send SMS: %v", err)
+	}
+
+	var stored model.SMS
+	if err := db.First(&stored).Error; err != nil {
+		t.Fatalf("find sent SMS: %v", err)
+	}
+	if stored.ICCID != "89840000000000000000" || stored.Phone != "+84944134544" || stored.Content != "he" || stored.Type != "sent" {
+		t.Fatalf("stored SMS = %#v", stored)
 	}
 }
