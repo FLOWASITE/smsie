@@ -162,20 +162,43 @@ function renderOpsKPIs() {
     const online = opsState.modems.filter(opsIsOnline).length;
     const mapped = opsMappedModems().length;
     const unread = opsState.messages.filter(message => message.type === 'received' && !message.is_read).length;
-    const sent = opsState.messages.filter(message => message.type === 'sent').length;
     const cards = [
-        { label: 'Modem trực tuyến', value: `${online}/${opsState.modems.length || 0}`, note: `${32 - mapped} khe chưa có mapping` },
-        { label: 'Đã gán khe', value: `${mapped}/32`, note: mapped ? 'Mapping preview trong phiên này' : 'Chưa có mapping vật lý' },
-        { label: 'Tin chưa đọc', value: unread, note: `${opsState.messages.length} tin trong lịch sử` },
-        { label: 'Tin đã gửi', value: sent, note: 'Chỉ tính từ khi bật lưu lịch sử' }
+        { label: 'Modem trực tuyến', value: `${online}/32`, note: `${32 - mapped} khe chưa có mapping`, icon: 'bi-router', tone: 'mint' },
+        { label: 'SIM đã gán', value: `${mapped}/32`, note: mapped ? 'Đã lưu hồ sơ vật lý' : 'Chưa có mapping vật lý', icon: 'bi-sim', tone: 'blue' },
+        { label: 'Tin chưa đọc', value: unread, note: `${opsState.messages.length} tin trong lịch sử`, icon: 'bi-chat-left-text', tone: 'green' },
+        { label: 'Cảnh báo', value: opsAlerts().filter(alert => alert.level !== 'ok').length, note: 'Theo sức khỏe modem và mapping', icon: 'bi-exclamation-triangle', tone: 'coral' }
     ];
     const container = $('#ops-kpis').empty();
     cards.forEach(card => {
         const item = opsElement('article', 'ops-kpi');
-        item.append(opsElement('div', 'ops-kpi-label', card.label));
-        item.append(opsElement('div', 'ops-kpi-value', String(card.value)));
-        item.append(opsElement('div', 'ops-kpi-note', card.note));
+        item.append(opsElement('div', `ops-kpi-icon tone-${card.tone}`).append($('<i>').addClass(`bi ${card.icon}`)));
+        const body = opsElement('div', 'ops-kpi-body');
+        body.append(opsElement('div', 'ops-kpi-label', card.label));
+        body.append(opsElement('div', 'ops-kpi-value', String(card.value)));
+        body.append(opsElement('div', 'ops-kpi-note', card.note));
+        item.append(body);
         container.append(item);
+    });
+}
+
+function renderSimRails() {
+    const sorted = opsState.modems.slice().sort((left, right) => Number(left.slot_number || 99) - Number(right.slot_number || 99));
+    ['#ops-sim-rail-overview', '#ops-sim-rail-sms'].forEach(selector => {
+        const rail = $(selector).empty();
+        for (let index = 0; index < 8; index += 1) {
+            const modem = sorted[index];
+            const card = opsElement('button', `sim-rail-card${modem ? ' is-active' : ' is-empty'}`);
+            card.attr('type', 'button');
+            card.append(opsElement('div', 'sim-rail-icon').append($('<i>').addClass('bi bi-sim')));
+            const body = opsElement('div', 'sim-rail-body');
+            body.append(opsElement('strong', '', `SIM ${index + 1}`));
+            body.append(opsElement('div', 'sim-rail-number', modem ? (modem.phone_number || 'Chưa biết số') : 'Chưa gán'));
+            body.append(opsElement('div', 'sim-rail-meta', modem ? `Khe ${modem.slot_number || '—'} · ${modem.port_name || '—'}` : 'Không có SIM'));
+            card.append(body, opsElement('span', `sim-rail-dot${modem && opsIsOnline(modem) ? ' online' : ''}`));
+            if (modem) card.click(() => $('#nav-slots').trigger('click'));
+            rail.append(card);
+        }
+        rail.append(opsElement('button', 'sim-rail-next').attr('type', 'button').attr('aria-label', 'Xem thêm SIM').append($('<i>').addClass('bi bi-chevron-right')));
     });
 }
 
@@ -253,10 +276,11 @@ function renderConversationThread(thread, container) {
     container.empty();
     const header = opsElement('header', 'conversation-detail-head');
     const identity = opsElement('div');
+    const avatar = opsElement('div', 'contact-avatar tone-mint', String(thread.phone).replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || 'SMS');
     identity.append(opsElement('div', 'eyebrow', 'Hội thoại SMS'));
     identity.append(opsElement('h2', '', thread.phone));
     identity.append(opsElement('div', 'ops-list-note', `${thread.messages.length} tin nhắn`));
-    header.append(identity);
+    header.append(avatar, identity);
 
     const latest = thread.latest || {};
     const compose = opsElement('button', 'btn btn-dark btn-sm', 'Soạn tin');
@@ -283,6 +307,24 @@ function renderConversationThread(thread, container) {
         timeline.append(bubble);
     });
     container.append(timeline);
+
+    const composer = opsElement('div', 'conversation-composer');
+    composer.append(opsElement('button', 'composer-icon').attr({ type: 'button', disabled: true, 'aria-label': 'Đính kèm tệp chưa hỗ trợ' }).append($('<i>').addClass('bi bi-paperclip')));
+    const input = $('<textarea>').addClass('form-control').attr({ rows: 1, placeholder: 'Nhập nội dung tin nhắn…', 'aria-label': 'Nội dung SMS' });
+    const count = opsElement('span', 'composer-count', '0/160');
+    input.on('input', function () { count.text(`${String(input.val() || '').length}/160`); });
+    const send = opsElement('button', 'btn btn-send-draft', 'Tiếp tục gửi');
+    send.attr('type', 'button').click(function () {
+        const text = String(input.val() || '').trim();
+        if (!text) return;
+        const iccid = latest.iccid || (opsState.modems[0] && opsState.modems[0].iccid);
+        if (!iccid || typeof showSMSModal !== 'function') return;
+        showSMSModal(iccid);
+        $('#sms-phone').val(thread.phone);
+        $('#sms-content').val(text);
+    });
+    composer.append(opsElement('div', 'composer-input').append(input, count), send);
+    container.append(composer);
 }
 
 function renderConversationInbox(messages) {
@@ -304,11 +346,14 @@ function renderConversationInbox(messages) {
     threads.forEach((thread, index) => {
         const item = opsElement('button', `conversation-contact${index === 0 ? ' is-active' : ''}`);
         item.attr('type', 'button');
+        item.append(opsElement('div', `contact-avatar tone-${['mint', 'coral', 'blue', 'amber'][index % 4]}`, String(thread.phone).replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || 'SMS'));
+        const itemBody = opsElement('div', 'conversation-contact-body');
         const top = opsElement('div', 'conversation-contact-top');
         top.append(opsElement('strong', '', thread.phone));
         top.append(opsElement('time', '', new Date(thread.latest.timestamp).toLocaleDateString('vi-VN')));
-        item.append(top);
-        item.append(opsElement('div', 'conversation-preview', thread.latest.content || 'Không có nội dung'));
+        itemBody.append(top);
+        itemBody.append(opsElement('div', 'conversation-preview', thread.latest.content || 'Không có nội dung'));
+        item.append(itemBody);
         item.click(function () {
             list.find('.conversation-contact').removeClass('is-active');
             item.addClass('is-active');
@@ -418,17 +463,20 @@ function renderSlotGrid() {
 function renderMaintenancePreview() {
     const mapped = opsMappedModems();
     const summary = [
-        { label: 'Lịch đang bật', value: '0', note: 'Khóa trong giai đoạn preview' },
-        { label: 'SIM đủ điều kiện', value: mapped.length, note: `${opsState.modems.length - mapped.length} modem chưa gán khe` },
-        { label: 'Ngân sách tháng', value: '0 đ', note: 'Chưa thiết lập hạn mức' },
-        { label: 'Lần chạy kế tiếp', value: '—', note: 'Chưa kích hoạt lịch' }
+        { label: 'Lịch đang bật', value: '0', note: 'Khóa trong giai đoạn preview', icon: 'bi-calendar2-check', tone: 'mint' },
+        { label: 'SIM đủ điều kiện', value: mapped.length, note: `${opsState.modems.length - mapped.length} modem chưa gán khe`, icon: 'bi-sim', tone: 'blue' },
+        { label: 'Ngân sách tháng', value: '0 đ', note: 'Chưa thiết lập hạn mức', icon: 'bi-wallet2', tone: 'amber' },
+        { label: 'Lần chạy kế tiếp', value: '—', note: 'Chưa kích hoạt lịch', icon: 'bi-clock-history', tone: 'coral' }
     ];
     const kpis = $('#ops-maintenance-summary').empty();
     summary.forEach(item => {
         const card = opsElement('article', 'ops-kpi');
-        card.append(opsElement('div', 'ops-kpi-label', item.label));
-        card.append(opsElement('div', 'ops-kpi-value', String(item.value)));
-        card.append(opsElement('div', 'ops-kpi-note', item.note));
+        card.append(opsElement('div', `ops-kpi-icon tone-${item.tone}`).append($('<i>').addClass(`bi ${item.icon}`)));
+        const metric = opsElement('div', 'ops-kpi-body');
+        metric.append(opsElement('div', 'ops-kpi-label', item.label));
+        metric.append(opsElement('div', 'ops-kpi-value', String(item.value)));
+        metric.append(opsElement('div', 'ops-kpi-note', item.note));
+        card.append(metric);
         kpis.append(card);
     });
 
@@ -484,17 +532,20 @@ function renderAlertCenter() {
 function renderReportPreview() {
     const summary = summarizeOpsData(opsState.modems, opsState.messages);
     const cards = [
-        { label: 'Tổng SMS', value: summary.messageTotal, note: 'Trong dữ liệu hiện có' },
-        { label: 'Tin nhận', value: summary.received, note: `${summary.unread} tin chưa đọc` },
-        { label: 'Tin đã gửi', value: summary.sent, note: `${summary.delivered} đã giao` },
-        { label: 'Gửi lỗi', value: summary.failed, note: 'Không tự động gửi lại' }
+        { label: 'Tổng SMS', value: summary.messageTotal, note: 'Trong dữ liệu hiện có', icon: 'bi-chat-square-dots', tone: 'blue' },
+        { label: 'Tin nhận', value: summary.received, note: `${summary.unread} tin chưa đọc`, icon: 'bi-arrow-down-left-circle', tone: 'mint' },
+        { label: 'Tin đã gửi', value: summary.sent, note: `${summary.delivered} đã giao`, icon: 'bi-send-check', tone: 'green' },
+        { label: 'Gửi lỗi', value: summary.failed, note: 'Không tự động gửi lại', icon: 'bi-exclamation-octagon', tone: 'coral' }
     ];
     const kpis = $('#ops-report-kpis').empty();
     cards.forEach(item => {
         const card = opsElement('article', 'ops-kpi');
-        card.append(opsElement('div', 'ops-kpi-label', item.label));
-        card.append(opsElement('div', 'ops-kpi-value', String(item.value)));
-        card.append(opsElement('div', 'ops-kpi-note', item.note));
+        card.append(opsElement('div', `ops-kpi-icon tone-${item.tone}`).append($('<i>').addClass(`bi ${item.icon}`)));
+        const metric = opsElement('div', 'ops-kpi-body');
+        metric.append(opsElement('div', 'ops-kpi-label', item.label));
+        metric.append(opsElement('div', 'ops-kpi-value', String(item.value)));
+        metric.append(opsElement('div', 'ops-kpi-note', item.note));
+        card.append(metric);
         kpis.append(card);
     });
 
@@ -551,6 +602,7 @@ function renderAuditPreview() {
 }
 
 function renderOperationsConsole() {
+    renderSimRails();
     renderOpsKPIs();
     renderMiniSlots();
     renderOpsAlertSummary();
