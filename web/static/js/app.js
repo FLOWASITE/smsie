@@ -4,7 +4,7 @@ let i18nCache = {};
 
 // Default Language logic
 let storedLang = localStorage.getItem('sms_lang');
-let currentLang = storedLang ? storedLang : 'zh-tw'; // Default to zh-tw per user request
+let currentLang = storedLang ? storedLang : 'vi';
 
 // If stored was 'zh', map to 'zh-tw' for compatibility if needed, or just support whatever
 if (currentLang === 'zh') currentLang = 'zh-tw';
@@ -470,7 +470,7 @@ function loadSMS(page = 1) {
         const total = resp.total || 0;
 
         if (data.length === 0) {
-            list.append('<div class="text-center text-muted p-3">No messages</div>');
+            list.append($('<div>').addClass('text-center text-muted p-3').text(window.t('no_messages')));
         } else {
             data.forEach(sms => {
                 const time = new Date(sms.timestamp).toLocaleString();
@@ -518,7 +518,7 @@ function renderPagination(total, page) {
     pag.append(btnPrev);
 
     // Info
-    pag.append(`<span class="align-self-center">Page ${page} of ${totalPages}</span>`);
+    pag.append($('<span>').addClass('align-self-center').text(`${window.t('page')} ${page}/${totalPages}`));
 
     // Next
     const btnNext = $('<button class="btn btn-sm btn-outline-secondary">Next</button>');
@@ -554,7 +554,7 @@ function loadModems() {
             if (!$('#view-modems').hasClass('d-none')) {
                 const statusClass = m.status === 'online' ? 'online' : 'offline';
                 const workerExists = !(Object.prototype.hasOwnProperty.call(m, 'worker_exists')) || !!m.worker_exists;
-                const statusText = workerExists ? (m.status || 'offline') : 'offline';
+                const statusText = window.t(workerExists ? (m.status || 'offline') : 'offline');
                 const callSupported = !!m.call_supported;
                 const sipListenerText = m.sip_listen_port
                     ? `${m.sip_listener_transport || 'SIP'} ${m.sip_listen_port}${m.sip_listener_active ? '' : ' (inactive)'}`
@@ -564,8 +564,8 @@ function loadModems() {
                     : '';
 
                 const commonButtons = `
-                    <button class="btn btn-sm btn-outline-secondary" onclick="showSMSModal('${m.iccid}')">SMS</button>
-                    ${callSupported ? `<button class="btn btn-sm btn-outline-secondary" onclick="showCallModal('${m.iccid}')">Call</button>` : ''}
+                    <button class="btn btn-sm btn-outline-secondary" onclick="showSMSModal('${m.iccid}')">${window.t('sms')}</button>
+                    ${callSupported ? `<button class="btn btn-sm btn-outline-secondary" onclick="showCallModal('${m.iccid}')">${window.t('call')}</button>` : ''}
                     <button class="btn btn-sm btn-outline-secondary" onclick="showModemSettings('${m.iccid}')">${window.t('settings') || 'Settings'}</button>
                 `;
                 const adminButtons = auth.role === 'admin'
@@ -582,10 +582,10 @@ function loadModems() {
                         </div>
                         ${m.name ? `<div class="mono text-secondary mb-2">${m.iccid}</div>` : ''}
                         <div class="small"><strong>IMEI:</strong> ${m.imei || '-'}</div>
-                        <div class="small"><strong>${window.t('operator')}:</strong> ${m.operator || 'Unknown'}</div>
-                        <div class="small"><strong>${window.t('registration')}:</strong> ${m.registration || 'Unknown'}</div>
+                        <div class="small"><strong>${window.t('operator')}:</strong> ${m.operator || window.t('unknown')}</div>
+                        <div class="small"><strong>${window.t('registration')}:</strong> ${m.registration || window.t('unknown')}</div>
                         <div class="small"><strong>${window.t('signal')}:</strong> ${m.signal_strength > 0 ? `${m.signal_strength}%` : '0%'}</div>
-                        <div class="small text-secondary mb-3">Port: ${m.port_name || '-'}</div>
+                        <div class="small text-secondary mb-3">${window.t('port')}: ${m.port_name || '-'}</div>
                         ${sipListenerLine}
                         <div class="d-flex flex-wrap gap-2">
                             ${commonButtons}
@@ -1409,16 +1409,16 @@ $('#btn-send-sms').click(function () {
     const btn = $(this);
 
     if (!phone) {
-        statusDiv.html('<span class="text-danger">Please enter a phone number</span>');
+        statusDiv.empty().append($('<span>').addClass('text-danger').text(window.t('enter_phone')));
         return;
     }
     if (!message) {
-        statusDiv.html('<span class="text-danger">Please enter a message</span>');
+        statusDiv.empty().append($('<span>').addClass('text-danger').text(window.t('enter_message')));
         return;
     }
 
-    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Sending...');
-    statusDiv.html('<span class="text-muted">Sending SMS...</span>');
+    btn.prop('disabled', true).html(`<span class="spinner-border spinner-border-sm"></span> ${window.t('sending')}`);
+    statusDiv.empty().append($('<span>').addClass('text-muted').text(window.t('sending_sms')));
 
     $.ajax({
         url: `/api/v1/modems/${iccid}/send`,
@@ -1426,13 +1426,13 @@ $('#btn-send-sms').click(function () {
         contentType: 'application/json',
         data: JSON.stringify({ phone: phone, message: message }),
         success: function (resp) {
-            statusDiv.html('<span class="text-success"><i class="bi bi-check-circle"></i> SMS sent successfully!</span>');
+            statusDiv.empty().append($('<span>').addClass('text-success').text(`✓ ${window.t('sms_sent')}`));
             // Clear form on success
             $('#sms-phone').val("");
             $('#sms-content').val("");
         },
         error: function (xhr) {
-            let msg = "Failed to send SMS";
+            let msg = window.t('sms_failed');
             if (xhr.responseJSON && xhr.responseJSON.error) {
                 msg = xhr.responseJSON.error;
             } else if (xhr.responseText) {
@@ -1441,7 +1441,7 @@ $('#btn-send-sms').click(function () {
             statusDiv.html(`<span class="text-danger"><i class="bi bi-x-circle"></i> ${msg}</span>`);
         },
         complete: function () {
-            btn.prop('disabled', false).html('<i class="bi bi-send"></i> Send SMS');
+            btn.prop('disabled', false).html(`<i class="bi bi-send"></i> ${window.t('send_sms')}`);
         }
     });
 });

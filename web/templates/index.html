@@ -295,7 +295,7 @@
           <small class="text-secondary">Ops Console</small>
         </div>
         <h1 class="login-title mb-2" data-i18n="login_title">Login</h1>
-        <p class="text-secondary mb-4">Secure modem and call operations portal.</p>
+        <p class="text-secondary mb-4" data-i18n="login_description">Secure modem and call operations portal.</p>
 
         <div class="mb-3">
           <label class="form-label" data-i18n="username">Username</label>
@@ -322,15 +322,16 @@
           <nav class="nav flex-column">
             <a class="nav-link active" href="#" id="nav-sms"><i class="bi bi-chat-left-text"></i> <span data-i18n="nav_sms">Messages</span></a>
             <a class="nav-link" href="#" id="nav-modems"><i class="bi bi-sim"></i> <span data-i18n="nav_modems">Modems</span></a>
-            <a class="nav-link" href="#" id="nav-apikeys"><i class="bi bi-key"></i> <span>API Key</span></a>
+            <a class="nav-link" href="#" id="nav-apikeys"><i class="bi bi-key"></i> <span data-i18n="nav_apikeys">API Key</span></a>
             <a class="nav-link" href="#" id="nav-users"><i class="bi bi-people"></i> <span data-i18n="nav_users">Users</span></a>
           </nav>
 
           <div class="mt-auto pt-3 border-top">
             <div id="current-user" class="small text-secondary mb-2">user</div>
             <div class="d-flex gap-2 align-items-center">
-              <button class="btn btn-outline-secondary btn-sm" onclick="$('#passwordModal').modal('show')">Password</button>
+              <button class="btn btn-outline-secondary btn-sm" onclick="$('#passwordModal').modal('show')" data-i18n="change_password">Password</button>
               <select class="form-select form-select-sm" id="lang-select" style="max-width: 92px">
+                <option value="vi">VI</option>
                 <option value="en">EN</option>
                 <option value="zh-tw">ZH-TW</option>
               </select>
@@ -751,20 +752,20 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">Send SMS: <span id="sms-iccid-title" class="mono"></span></h5>
+            <h5 class="modal-title"><span data-i18n="send_sms">Send SMS</span>: <span id="sms-iccid-title" class="mono"></span></h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
             <input type="hidden" id="sms-iccid" />
             <div class="mb-3">
-              <label class="form-label">Phone</label>
+              <label class="form-label" data-i18n="phone">Phone</label>
               <input id="sms-phone" class="form-control" placeholder="+886912345678" />
             </div>
             <div class="mb-2">
-              <label class="form-label">Message</label>
+              <label class="form-label" data-i18n="message">Message</label>
               <textarea id="sms-content" class="form-control" rows="4"></textarea>
             </div>
-            <button id="btn-send-sms" class="btn btn-accent w-100"><i class="bi bi-send"></i> Send SMS</button>
+            <button id="btn-send-sms" class="btn btn-accent w-100"><i class="bi bi-send"></i> <span data-i18n="send_sms">Send SMS</span></button>
             <div id="sms-send-status" class="small mt-2"></div>
           </div>
         </div>
