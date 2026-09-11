@@ -600,6 +600,31 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         link.click();
         URL.revokeObjectURL(url);
     });
+    $('#btn-backup-database').click(async function () {
+        const button = $(this);
+        const status = $('#ops-backup-status');
+        button.prop('disabled', true).text('Đang tạo backup…');
+        status.text('Đang tạo snapshot SQLite nhất quán.');
+        try {
+            const response = await fetch('/api/v1/admin/backup', {
+                headers: { Authorization: `Bearer ${auth.token}` }
+            });
+            if (!response.ok) throw new Error('Backup failed');
+            const blob = await response.blob();
+            const disposition = response.headers.get('content-disposition') || '';
+            const match = disposition.match(/filename="?([^";]+)"?/i);
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = match ? match[1] : `smsie-backup-${new Date().toISOString().slice(0, 10)}.db`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+            status.text('Đã tải backup về máy.');
+        } catch (_) {
+            status.text('Không tạo được backup. Kiểm tra quyền admin và service.');
+        } finally {
+            button.prop('disabled', false).html('<i class="bi bi-database-down"></i> Sao lưu dữ liệu');
+        }
+    });
     $('#sms-search').on('input', function () {
         renderConversationInbox(opsState.currentMessages || []);
     });

@@ -470,9 +470,14 @@
                 <h1>Báo cáo vận hành</h1>
                 <p>Thống kê theo SIM, chiều tin nhắn, trạng thái và thời gian.</p>
               </div>
-              <button id="btn-export-preview" class="btn btn-dark"><i class="bi bi-download"></i> Xuất CSV</button>
+              <div class="ops-head-actions">
+                <button id="btn-export-preview" class="btn btn-outline-secondary"><i class="bi bi-filetype-csv"></i> Xuất CSV</button>
+                <button id="btn-backup-database" class="btn btn-dark"><i class="bi bi-database-down"></i> Sao lưu dữ liệu</button>
+                <button class="btn btn-outline-secondary" disabled title="Sẽ bật sau khi Windows Service hỗ trợ restart an toàn"><i class="bi bi-database-up"></i> Khôi phục</button>
+              </div>
             </header>
             <div id="ops-report-kpis" class="ops-kpi-grid"></div>
+            <div id="ops-backup-status" class="ops-list-note mb-3" role="status"></div>
             <div class="ops-dashboard-grid report-grid">
               <section class="ops-panel"><div id="ops-message-chart" class="chart-shell"></div></section>
               <section class="ops-panel"><div id="ops-health-breakdown"></div></section>

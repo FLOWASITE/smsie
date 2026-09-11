@@ -121,6 +121,7 @@ func main() {
 	wh := api.NewWebhookHandler(db)
 	uh := api.NewUserHandler(db)
 	akh := api.NewAPIKeyHandler(db)
+	backupHandler := api.NewAdminBackupHandler(db, config.AppConfig.Database.Driver)
 	mcpHTTP := api.NewMCPHTTPServer(db, wm)
 	r.Any("/mcp", gin.WrapH(mcpHTTP.Handler()))
 
@@ -164,6 +165,7 @@ func main() {
 				adminGroup.DELETE("/webhooks/:id", wh.DeleteWebhook)
 				adminGroup.DELETE("/modems/:iccid", mh.DeleteModem)
 				adminGroup.PATCH("/modems/:iccid/profile", mh.UpdateProfile)
+				adminGroup.GET("/admin/backup", backupHandler.Download)
 
 				adminGroup.GET("/users", uh.ListUsers)
 				adminGroup.POST("/users", uh.CreateUser)
