@@ -3,6 +3,7 @@ package worker
 import (
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -193,18 +194,46 @@ func (w *ModemWorker) checkSMS(session *atSession) {
 		return // No messages
 	}
 
-	pdus, seenMessage := parseCMGLPDUs(resp, w.isURC)
-	for _, pdu := range pdus {
-		w.processPDU(pdu)
-	}
-
-	// Delete all messages after reading to avoid filling memory
-	// Warning: This deletes ALL messages. In production might want to delete by index.
-	if seenMessage {
-		if err := w.deleteReadMessages(session); err != nil {
-			logger.Log.Warnf("[%s] Failed to delete messages: %v", w.PortName, err)
+	for _, entry := range parseStoredSMS(resp, w.isURC) {
+		if err := w.processPDU(entry.pdu); err != nil {
+			logger.Log.Warnf("[%s] Retaining SMS index %d: %v", w.PortName, entry.index, err)
+			continue
+		}
+		if _, err := session.execute(fmt.Sprintf("AT+CMGD=%d,0", entry.index), 5*time.Second, false); err != nil {
+			logger.Log.Warnf("[%s] Failed to delete saved SMS index %d: %v", w.PortName, entry.index, err)
 		}
 	}
+}
+
+type storedSMS struct {
+	index int
+	pdu   string
+}
+
+func parseStoredSMS(response string, isURC func(string) bool) []storedSMS {
+	var entries []storedSMS
+	index := -1
+	for _, line := range strings.Split(response, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "+CMGL:") {
+			index = -1
+			fields := strings.Split(strings.TrimSpace(strings.TrimPrefix(line, "+CMGL:")), ",")
+			if n, err := strconv.Atoi(strings.TrimSpace(fields[0])); err == nil && n >= 0 {
+				index = n
+			}
+			continue
+		}
+		if line == "" || isURC(line) {
+			continue
+		}
+		if index >= 0 {
+			if _, err := hex.DecodeString(line); err == nil {
+				entries = append(entries, storedSMS{index, line})
+			}
+			index = -1
+		}
+	}
+	return entries
 }
 
 func parseCMGLPDUs(response string, isURC func(string) bool) ([]string, bool) {
@@ -237,12 +266,12 @@ func parseCMGLPDUs(response string, isURC func(string) bool) ([]string, bool) {
 	return pdus, seenMessage
 }
 
-func (w *ModemWorker) processPDU(raw string) {
+func (w *ModemWorker) processPDU(raw string) error {
 	// Hex Decode
 	b, err := hex.DecodeString(raw)
 	if err != nil {
 		logger.Log.Errorf("[%s] Failed to decode hex PDU: %v", w.PortName, err)
-		return
+		return err
 	}
 
 	// SMSC Address Handling
@@ -259,6 +288,10 @@ func (w *ModemWorker) processPDU(raw string) {
 	msg, err := sms.Unmarshal(b)
 	if err != nil {
 		logger.Log.Errorf("[%s] Failed to decode TPDU: %v", w.PortName, err)
+		return err
+	}
+	if msg == nil || msg.SmsType() != tpdu.SmsDeliver {
+		return fmt.Errorf("unsupported SMS PDU type; retained for inspection")
 	}
 
 	var content string
@@ -287,6 +320,7 @@ func (w *ModemWorker) processPDU(raw string) {
 			content = string(udContent)
 		} else {
 			logger.Log.Warnf("[%s] Failed to decode UD: %v. DCS: %02X.", w.PortName, decErr, msg.DCS)
+			return decErr
 			// Fallback to simpler extraction or raw
 			// If 7-bit, simply casting to string is wrong, but better than nothing for ASCII-like?
 			// Actually better to show hex if it failed
@@ -318,25 +352,17 @@ func (w *ModemWorker) processPDU(raw string) {
 		sms.Timestamp = time.Now()
 	}
 
-	if err := w.smsRepo.Create(sms); err != nil {
+	created, err := w.smsRepo.CreateReceivedOnce(sms)
+	if err != nil {
 		logger.Log.Errorf("[%s] Failed to save received SMS: %v", w.PortName, err)
-		return
+		return err
+	}
+	if !created {
+		return nil
 	}
 	w.captureBalance(content)
 
 	// Trigger Webhook
 	w.webhookService.Dispatch(sms)
-}
-
-func (w *ModemWorker) deleteReadMessages(session *atSession) error {
-	// Instead of deleting all, we should iterate.
-	// But AT+CMGD=1,4 deletes all.
-	// The user asked to delete read messages.
-	// Since we query AT+CMGL=4 (ALL), we can safely delete all AFTER processing.
-	// However, to be safer, let's keep using Delete All for now as intended, but enable it always.
-	// Or we can parse indices.
-	// For "read after delete", CMGD=1,4 is fine if we processed everything.
-
-	_, err := session.execute("AT+CMGD=1,4", 5*time.Second, false)
-	return err
+	return nil
 }
