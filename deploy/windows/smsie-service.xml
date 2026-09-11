@@ -1,0 +1,12 @@
+<service>
+  <id>smsie</id>
+  <name>smsie Modem Pool</name>
+  <description>SMS and modem-pool operations service for the locally attached EC20 hardware.</description>
+  <executable>%BASE%\..\..\smsie.exe</executable>
+  <workingdirectory>%BASE%\..\..</workingdirectory>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <onfailure action="restart" delay="10 sec" />
+  <logpath>%BASE%\..\..\logs</logpath>
+  <log mode="roll" />
+</service>

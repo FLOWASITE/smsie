@@ -4,5 +4,7 @@ mcc_mnc.json
 *.db
 *.log
 recordings/
+logs/
+backups/
 .idea
 config.yaml
