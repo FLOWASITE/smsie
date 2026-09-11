@@ -106,6 +106,10 @@ function opsMoney(value) {
     return `${Number(value || 0).toLocaleString('vi-VN')} đ`;
 }
 
+function opsBalanceLabel(modem) {
+    return modem && modem.balance_updated_at ? opsMoney(modem.balance_vnd) : 'Chưa kiểm tra';
+}
+
 function saveModemProfile(iccid, profile) {
     return $.ajax({
         url: `/api/v1/modems/${encodeURIComponent(iccid)}/profile`,
@@ -396,7 +400,7 @@ function renderSlotGrid() {
         card.append(opsElement('div', 'slot-state', modem ? (opsState.phoneNumbers[modem.iccid] || modem.name || modem.port_name || modem.iccid) : 'Chưa gán SIM'));
         card.append(opsElement('div', 'slot-meta', modem ? `${modem.port_name} · ${opsSignalLabel(modem.signal_strength)} ${modem.signal_strength || 0}%` : 'Sẵn sàng nhận mapping'));
         if (modem) card.append(opsElement('div', 'slot-meta mono', `ICCID ${modem.iccid} · IMEI ${modem.imei || '—'}`));
-        if (modem) card.append(opsElement('div', 'slot-meta', `Số dư ${opsMoney(modem.balance_vnd)} · ${modem.balance_updated_at ? new Date(modem.balance_updated_at).toLocaleString('vi-VN') : 'chưa kiểm tra'}`));
+        if (modem) card.append(opsElement('div', 'slot-meta', `Số dư ${opsBalanceLabel(modem)}${modem.balance_updated_at ? ` · ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : ''}`));
         if (modem && modem.hardware_path) card.append(opsElement('div', 'slot-meta hardware-path', modem.hardware_path));
         if (modem) {
             const reset = opsElement('button', 'text-action mt-2', 'Bỏ mapping preview');
@@ -439,7 +443,7 @@ function renderMaintenancePreview() {
         const main = opsElement('div', 'schedule-main');
         main.append(opsElement('div', 'schedule-title', `${slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán khe'} · ${modem.port_name || modem.iccid}`));
         main.append(opsElement('div', 'ops-list-note', `${opsState.phoneNumbers[modem.iccid] || 'Chưa biết số'} · ${modem.iccid} · ${modem.operator || 'Chưa rõ nhà mạng'} · sóng ${modem.signal_strength || 0}%`));
-        main.append(opsElement('div', 'balance-line', `Số dư hiện tại ${opsMoney(modem.balance_vnd)} · ${modem.balance_updated_at ? `cập nhật ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : 'chưa kiểm tra'}`));
+        main.append(opsElement('div', 'balance-line', `Số dư hiện tại: ${opsBalanceLabel(modem)}${modem.balance_updated_at ? ` · cập nhật ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : ''}`));
         main.append(opsElement('div', 'schedule-rule', 'Mỗi tháng · gọi thử hoặc SMS · tối đa 1 lần thành công'));
         const controls = opsElement('div', 'schedule-controls');
         controls.append(opsElement('span', `status-chip ${slot ? 'status-ready' : 'status-blocked'}`, slot ? 'Sẵn sàng cấu hình' : 'Cần mapping'));
