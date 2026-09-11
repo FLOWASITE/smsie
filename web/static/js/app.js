@@ -325,6 +325,7 @@ $(document).ready(function () {
 
     $('#btn-refresh-sms').click(() => loadSMS(1));
     $('#sms-filter-modem').change(() => loadSMS(1));
+    $('#sms-filter-type').change(() => loadSMS(1));
     $('#btn-create-apikey').click(createAPIKey);
     $('#btn-refresh-apikeys').click(loadAPIKeys);
     $('#btn-copy-apikey').click(copyLatestAPIKeySecret);
@@ -459,8 +460,9 @@ const SMS_LIMIT = 20;
 function loadSMS(page = 1) {
     currentSMSPage = page;
     const iccid = $('#sms-filter-modem').val();
+    const smsType = $('#sms-filter-type').val();
 
-    $.get('/api/v1/sms', { iccid: iccid, page: page, limit: SMS_LIMIT }, function (resp) {
+    $.get('/api/v1/sms', { iccid: iccid, type: smsType, page: page, limit: SMS_LIMIT }, function (resp) {
         const list = $('#sms-list');
         list.empty();
 
@@ -483,7 +485,10 @@ function loadSMS(page = 1) {
 
                 const contentDiv = $('<div>').addClass('mb-1').text(sms.content); // Safer .text()
 
-                const footer = $('<small>').addClass('text-secondary').html(`<i class="bi bi-sim"></i> ${getFlagFromICCID(sms.iccid)} ${sms.iccid}`);
+                const direction = sms.type === 'sent' ? 'sent' : 'received';
+                const footer = $('<small>').addClass('text-secondary');
+                footer.append($('<span>').text(`${direction === 'sent' ? '↗' : '↙'} ${window.t(direction)} · `));
+                footer.append($('<span>').text(`${getFlagFromICCID(sms.iccid)} ${sms.iccid}`));
 
                 div.append(header).append(contentDiv).append(footer);
                 list.append(div);

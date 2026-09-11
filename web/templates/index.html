@@ -343,6 +343,11 @@
             <div class="view-head">
               <h2 class="view-title" data-i18n="sms_title">Inbox</h2>
               <div class="d-flex gap-2">
+                <select id="sms-filter-type" class="form-select">
+                  <option value="" data-i18n="all_messages">All Messages</option>
+                  <option value="received" data-i18n="received">Received</option>
+                  <option value="sent" data-i18n="sent">Sent</option>
+                </select>
                 <select id="sms-filter-modem" class="form-select">
                   <option value="" data-i18n="all_modems">All Modems</option>
                 </select>
