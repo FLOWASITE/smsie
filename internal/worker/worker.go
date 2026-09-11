@@ -1112,7 +1112,7 @@ func (w *ModemWorker) SendSMS(phoneNumber, message string) error {
 			// Step 2: Send PDU hex followed by Ctrl+Z (0x1A)
 			resp, err = session.execute(pduCmd, 60*time.Second, false)
 			if err != nil {
-				_, _ = session.execute("\x1A", 2*time.Second, true)
+				_, _ = session.execute("\x1B", 2*time.Second, true)
 				return fmt.Errorf("failed to send PDU: %w", err)
 			}
 

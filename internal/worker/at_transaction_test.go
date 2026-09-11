@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pccr10001/smsie/internal/model"
 	"go.bug.st/serial"
 )
 
@@ -166,5 +167,35 @@ func TestExecuteATRejectsInteractiveInput(t *testing.T) {
 	}
 	if _, err := w.ExecuteAT("00\x1A", time.Second); err == nil {
 		t.Fatal("expected PDU input to be rejected")
+	}
+}
+
+func TestSendSMSAbortsPromptWithEscapeAfterPDUError(t *testing.T) {
+	initTestLogger()
+	w := NewModemWorker("test", nil, nil)
+	w.setModem(&model.Modem{ICCID: "89840000000000000000"})
+	port := &scriptedPort{worker: w}
+	port.script = func(command string) []string {
+		switch {
+		case command == "AT+CMGF=0\r":
+			return []string{"OK"}
+		case strings.HasPrefix(command, "AT+CMGS="):
+			return []string{">"}
+		case command == "\x1B":
+			return []string{"OK"}
+		default:
+			return []string{"ERROR"}
+		}
+	}
+	w.port = port
+	startTransactionWorker(t, w)
+
+	if err := w.SendSMS("+84944134544", "he"); err == nil {
+		t.Fatal("expected PDU submission to fail")
+	}
+
+	writes := port.recordedWrites()
+	if got := writes[len(writes)-1]; got != "\x1B" {
+		t.Fatalf("cleanup write = %q, want ESC", got)
 	}
 }
