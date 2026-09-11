@@ -32,11 +32,13 @@ type ModemWorker struct {
 	// Command handling
 	transactionChan chan atTransaction
 
-	busyMu    sync.Mutex
-	busy      bool
-	modemMu   sync.RWMutex
-	reprobeMu sync.Mutex
-	reprobe   bool
+	busyMu             sync.Mutex
+	busy               bool
+	balanceMu          sync.Mutex
+	balanceRequestedAt time.Time
+	modemMu            sync.RWMutex
+	reprobeMu          sync.Mutex
+	reprobe            bool
 
 	callOpMu sync.Mutex
 	callMu   sync.RWMutex
@@ -472,7 +474,7 @@ func parseID(resp, prefix string) string {
 
 func (w *ModemWorker) isURC(line string) bool {
 	// List of known URCs
-	if strings.HasPrefix(line, "+CMTI:") || strings.HasPrefix(line, "+CREG:") {
+	if strings.HasPrefix(line, "+CMTI:") || strings.HasPrefix(line, "+CREG:") || strings.HasPrefix(line, "+CUSD:") {
 		return true
 	}
 	if w.shouldHandleCallURC(line) {
@@ -493,6 +495,10 @@ func (w *ModemWorker) handleURC(line string) {
 		default:
 			// Already triggered
 		}
+		return
+	}
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(line)), "+CUSD:") {
+		w.captureBalance(line)
 		return
 	}
 

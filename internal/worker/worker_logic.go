@@ -318,7 +318,11 @@ func (w *ModemWorker) processPDU(raw string) {
 		sms.Timestamp = time.Now()
 	}
 
-	w.smsRepo.Create(sms)
+	if err := w.smsRepo.Create(sms); err != nil {
+		logger.Log.Errorf("[%s] Failed to save received SMS: %v", w.PortName, err)
+		return
+	}
+	w.captureBalance(content)
 
 	// Trigger Webhook
 	w.webhookService.Dispatch(sms)
