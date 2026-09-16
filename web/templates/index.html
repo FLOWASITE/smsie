@@ -286,7 +286,7 @@
         }
       }
     </style>
-    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-keepalive" />
+    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-nuoi-ui" />
   </head>
   <body>
     <div id="login-app" class="login-wrap d-none">
@@ -584,7 +584,8 @@
                 <p>Gửi 1 SMS nội mạng sang SIM khác trong khay khi SIM im lặng quá chu kỳ; có trần tháng, không gửi ra ngoài.</p>
               </div>
             </header>
-            <div id="ops-keepalive-banner" class="ops-banner d-none" role="status">Công tắc tổng đang TẮT trong config.yaml (<code>keepalive.enabled</code>) — không SIM nào được gửi.</div>
+            <div id="ops-keepalive-banner" class="ops-banner d-none" role="status"><i class="bi bi-toggle-off"></i><span>Công tắc tổng đang TẮT trong config.yaml — không SIM nào được gửi.</span><code class="ops-banner-chip">keepalive.enabled: false</code></div>
+            <div id="ops-keepalive-on" class="ops-banner-on d-none" role="status"><i class="bi bi-toggle-on"></i><span></span></div>
             <div id="ops-maintenance-summary" class="ops-kpi-grid"></div>
             <div id="ops-schedule-list" class="schedule-list"></div>
           </section>
@@ -1177,7 +1178,7 @@
     <script src="/static/js/router.js?v=20260911-calls"></script>
     <script src="/static/js/app.js?v=20260911-calls-v4"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20260916-backup"></script>
+    <script src="/static/js/operations-console.js?v=20260916-nuoi-ui"></script>
   </body>
 </html>
 
