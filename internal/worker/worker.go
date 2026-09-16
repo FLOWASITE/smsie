@@ -50,6 +50,7 @@ type ModemWorker struct {
 
 	// Data
 	repo           *repository.ModemRepository
+	bayRepo        *repository.BayRepository
 	smsRepo        *repository.SMSRepository
 	webhookService *logic.WebhookService
 	modem          *model.Modem
@@ -90,6 +91,27 @@ var (
 )
 
 var dialNumberPattern = regexp.MustCompile(`^[0-9*#+]+$`)
+var imeiPattern = regexp.MustCompile(`^\d{14,16}$`)
+var cmeSIMNotInserted = regexp.MustCompile(`\+CME ERROR:\s*10\b`) // \b so 100/101… don't match
+
+// parseIMEI returns the first pure-digit 14–16 char line; boot URCs like "+CPIN: READY" are skipped.
+func parseIMEI(resp string) string {
+	for _, l := range strings.Split(resp, "\n") {
+		if l = strings.TrimSpace(l); imeiPattern.MatchString(l) {
+			return l
+		}
+	}
+	return ""
+}
+
+// isSIMNotInserted: +CME ERROR: 10 (numeric) or "SIM not inserted" (AT+CMEE=2 verbose).
+func isSIMNotInserted(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return cmeSIMNotInserted.MatchString(msg) || strings.Contains(strings.ToLower(msg), "sim not inserted")
+}
 
 func NewModemWorker(portName string, db *gorm.DB, manager *Manager) *ModemWorker {
 	return &ModemWorker{
@@ -97,6 +119,7 @@ func NewModemWorker(portName string, db *gorm.DB, manager *Manager) *ModemWorker
 		stop:            make(chan struct{}),
 		transactionChan: make(chan atTransaction, 10),
 		repo:            repository.NewModemRepository(db),
+		bayRepo:         repository.NewBayRepository(db),
 		smsRepo:         repository.NewSMSRepository(db),
 		webhookService:  logic.NewWebhookService(repository.NewWebhookRepository(db)),
 		manager:         manager,
@@ -322,9 +345,18 @@ func (w *ModemWorker) initModem() {
 			return
 		}
 
-		// 3. Get ICCID
+		isQuectel := strings.Contains(resp, "Quectel")
+
+		// 3. Get IMEI (before ICCID: the bay must be identifiable even with no SIM)
+		var imei string
+		resp, err = w.ExecuteAT("AT+CGSN", 2*time.Second) // or AT+GSN
+		if err == nil {
+			imei = parseIMEI(resp)
+		}
+
+		// 4. Get ICCID
 		var iccid string
-		if strings.Contains(resp, "Quectel") {
+		if isQuectel {
 			resp, err = w.ExecuteAT("AT+QCCID", 5*time.Second)
 			if err == nil {
 				// Parse +QCCID: <iccid>
@@ -344,6 +376,11 @@ func (w *ModemWorker) initModem() {
 
 		if iccid == "" {
 			logger.Log.Errorf("[%s] Failed to get ICCID", w.PortName)
+			if imei != "" && isSIMNotInserted(err) {
+				if err := w.bayRepo.MarkEmpty(imei, w.PortName, time.Now()); err != nil {
+					logger.Log.Warnf("[%s] Failed to mark bay empty: %v", w.PortName, err)
+				}
+			}
 			return
 		}
 
@@ -355,21 +392,6 @@ func (w *ModemWorker) initModem() {
 		}
 
 		logger.Log.Infof("[%s] Found ICCID: %s", w.PortName, iccid)
-
-		// 4. Get IMEI
-		var imei string
-		resp, err = w.ExecuteAT("AT+CGSN", 2*time.Second) // or AT+GSN
-		if err == nil {
-			// IMEI is usually just a number line
-			lines := strings.Split(resp, "\n")
-			for _, l := range lines {
-				l = strings.TrimSpace(l)
-				if len(l) > 10 && !strings.Contains(l, "OK") {
-					imei = l
-					break
-				}
-			}
-		}
 
 		// 5. Get Signal Strength
 		var signal int
@@ -456,9 +478,32 @@ func (w *ModemWorker) initModem() {
 		} else {
 			w.setModem(modem)
 			logger.Log.Infof("Modem registered: %s (%s) Op: %s Sig: %d%%", iccid, w.PortName, operator, signal)
+			events, err := w.bayRepo.Observe(repository.Observation{IMEI: imei, ICCID: iccid, Operator: operator, PortName: w.PortName, At: time.Now()})
+			if err != nil {
+				logger.Log.Warnf("[%s] Slot observe failed: %v", w.PortName, err)
+			}
+			for _, e := range events {
+				logger.Log.Infof("[%s] Slot event %s: %s %v -> %v", w.PortName, e.Event, e.ICCID, derefInt(e.FromSlot), derefInt(e.ToSlot))
+			}
+			if len(events) > 0 {
+				if regCode != "1" && regCode != "5" {
+					logger.Log.Infof("[%s] Skip balance check after slot event: not registered (CREG %s)", w.PortName, regCode)
+				} else if err := w.RequestBalance(); errors.Is(err, ErrBalanceCheckInProgress) {
+					logger.Log.Debugf("[%s] Balance check after slot event skipped: %v", w.PortName, err)
+				} else if err != nil {
+					logger.Log.Warnf("[%s] Balance check after slot event failed: %v", w.PortName, err)
+				}
+			}
 		}
 
 	}()
+}
+
+func derefInt(p *int) interface{} {
+	if p == nil {
+		return "-"
+	}
+	return *p
 }
 
 func parseID(resp, prefix string) string {

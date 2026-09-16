@@ -234,6 +234,92 @@ components:
         record:
           $ref: "#/components/schemas/APIKeyRecord"
 
+    ModemBay:
+      type: object
+      description: A physical bay in the tray. The bay is keyed by modem IMEI, not by ICCID — the SIM in the bay can change.
+      properties:
+        imei:
+          type: string
+        slot_number:
+          type: integer
+          nullable: true
+          description: Calibrated slot number (1-32). Null if the modem has been seen but not yet calibrated.
+        current_iccid:
+          type: string
+          description: ICCID currently in this bay, or empty if the bay is empty.
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BayView:
+      allOf:
+        - $ref: "#/components/schemas/ModemBay"
+        - type: object
+          properties:
+            phone_number:
+              type: string
+            operator:
+              type: string
+            balance_vnd:
+              type: integer
+              format: int64
+            balance_updated_at:
+              type: string
+              format: date-time
+              nullable: true
+            port_name:
+              type: string
+            signal_strength:
+              type: integer
+            status:
+              type: string
+              enum: [online, offline, empty]
+            last_event_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    SimSlotEvent:
+      type: object
+      description: Append-only history row — a SIM (ICCID) inserted into, moved between, or removed from a bay.
+      properties:
+        id:
+          type: integer
+        detected_at:
+          type: string
+          format: date-time
+        iccid:
+          type: string
+        imei:
+          type: string
+        phone_number:
+          type: string
+        operator:
+          type: string
+        event:
+          type: string
+          enum: [inserted, moved, removed]
+        from_slot:
+          type: integer
+          nullable: true
+        to_slot:
+          type: integer
+          nullable: true
+        balance_vnd:
+          type: integer
+          format: int64
+          nullable: true
+          description: "*101# balance read right after detection, if available."
+        port_name:
+          type: string
+
 security:
   - bearerAuth: []
 
@@ -746,6 +832,144 @@ paths:
       responses:
         "101":
           description: Switching Protocols
+
+  /modems/{iccid}/profile:
+    patch:
+      summary: Update modem profile (Admin only)
+      parameters:
+        - name: iccid
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone_number:
+                  type: string
+                hardware_path:
+                  type: string
+                balance_vnd:
+                  type: integer
+                  format: int64
+      responses:
+        "200":
+          description: Updated modem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Modem"
+        "400":
+          description: Invalid profile data
+        "404":
+          description: Modem not found
+
+  /bays:
+    get:
+      summary: List physical bays (khe = IMEI)
+      responses:
+        "200":
+          description: Every bay, with the SIM currently in it (if any) and its runtime status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BayView"
+
+  /bays/{imei}:
+    patch:
+      summary: Calibrate the slot number for a bay (Admin only)
+      parameters:
+        - name: imei
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slot_number:
+                  type: integer
+                  nullable: true
+                  minimum: 1
+                  maximum: 32
+                  description: Null clears the calibration.
+      responses:
+        "200":
+          description: Updated bay
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModemBay"
+        "400":
+          description: slot_number out of range
+        "404":
+          description: Modem bay not found
+        "409":
+          description: slot already assigned to another modem
+
+  /slot-events:
+    get:
+      summary: List SIM slot history (append-only)
+      parameters:
+        - name: iccid
+          in: query
+          schema:
+            type: string
+        - name: slot
+          in: query
+          schema:
+            type: integer
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: "YYYY-MM-DD, inclusive"
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: "YYYY-MM-DD, inclusive"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+      responses:
+        "200":
+          description: Paginated slot events. Requires admin unless filtered by an iccid the caller is allowed to view.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SimSlotEvent"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        "403":
+          description: Admin access required to list all slot events
 
   /sms:
     get:

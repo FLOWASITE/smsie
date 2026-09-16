@@ -20,6 +20,7 @@ import (
 	"github.com/pccr10001/smsie/internal/config"
 	"github.com/pccr10001/smsie/internal/mccmnc"
 	"github.com/pccr10001/smsie/internal/model"
+	"github.com/pccr10001/smsie/internal/repository"
 	"github.com/pccr10001/smsie/internal/worker"
 	"github.com/pccr10001/smsie/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
@@ -117,6 +118,7 @@ func main() {
 
 	// Setup Routes
 	mh := api.NewModemHandler(db, wm, callMgr)
+	bh := api.NewBayHandler(db, wm)
 	sh := api.NewSMSHandler(db)
 	wh := api.NewWebhookHandler(db)
 	uh := api.NewUserHandler(db)
@@ -142,6 +144,8 @@ func main() {
 			authGroup.DELETE("/apikeys/:id", akh.DeleteMyAPIKey)
 
 			authGroup.GET("/modems", mh.ListModems)
+			authGroup.GET("/bays", bh.List)
+			authGroup.GET("/slot-events", bh.ListEvents)
 			authGroup.GET("/modems/:iccid", mh.GetModem)
 			authGroup.PUT("/modems/:iccid", mh.UpdateModem)
 			authGroup.POST("/modems/:iccid/scan", mh.ScanNetworks)
@@ -170,6 +174,7 @@ func main() {
 				adminGroup.DELETE("/webhooks/:id", wh.DeleteWebhook)
 				adminGroup.DELETE("/modems/:iccid", mh.DeleteModem)
 				adminGroup.PATCH("/modems/:iccid/profile", mh.UpdateProfile)
+				adminGroup.PATCH("/bays/:imei", bh.Assign)
 				adminGroup.GET("/admin/backup", backupHandler.Download)
 
 				adminGroup.GET("/users", uh.ListUsers)
@@ -214,6 +219,9 @@ func initDB() *gorm.DB {
 	if err := autoMigrateSchema(db); err != nil {
 		logger.Log.Fatalf("Failed to migrate database schema: %v", err)
 	}
+	if err := repository.NewBayRepository(db).MigrateFromModems(); err != nil {
+		logger.Log.Fatalf("Failed to migrate slot numbers to modem bays: %v", err)
+	}
 
 	// Init Admin
 	var count int64
@@ -257,7 +265,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {

@@ -5,6 +5,7 @@
 ## ?? Features
 
 - **Modem Management**: Automatically scans and detects serial modems. Tracks signal strength, operator name, and registration status in real-time (runtime state, not persisted as DB source-of-truth).
+- **SIM slot history**: each physical bay is identified by the modem IMEI; when a SIM (ICCID) shows up in a different bay, smsie records `inserted / moved / removed` events with the `*101#` balance read right after detection. Calibrate bay numbers once under *Khe SIM → Hiệu chuẩn*.
 - **SMS Operations**:
   - **Read**: View received SMS messages with pagination and search.`
   - **Send**: Send SMS with PDU supported.

@@ -1,13 +1,13 @@
 const opsState = {
     modems: [],
     messages: [],
-    previewMappings: {},
+    bays: [],
+    slotEvents: [],
+    slotTab: 'tray',
     phoneNumbers: {},
     balanceChecks: {},
     loadedAt: null
 };
-
-const OPS_PROFILE_STORAGE_KEY = 'smsie_ops_profiles_v1';
 
 function groupOpsMessages(messages) {
     const byPhone = new Map();
@@ -32,24 +32,6 @@ function describeOpsMessageRoute(message, modems, mappings, phoneNumbers) {
     if (modem.port_name) identity.push(modem.port_name);
     if (!identity.length && message.iccid) identity.push(message.iccid);
     return `${message.type === 'sent' ? 'Gửi từ' : 'Nhận tại'} ${identity.join(' · ')}`;
-}
-
-function loadOpsProfiles() {
-    try {
-        const stored = JSON.parse(localStorage.getItem(OPS_PROFILE_STORAGE_KEY) || '{}');
-        opsState.previewMappings = stored.mappings || {};
-        opsState.phoneNumbers = stored.phoneNumbers || {};
-    } catch (_) {
-        opsState.previewMappings = {};
-        opsState.phoneNumbers = {};
-    }
-}
-
-function saveOpsProfiles() {
-    localStorage.setItem(OPS_PROFILE_STORAGE_KEY, JSON.stringify({
-        mappings: opsState.previewMappings,
-        phoneNumbers: opsState.phoneNumbers
-    }));
 }
 
 function summarizeOpsData(modems, messages) {
@@ -95,42 +77,31 @@ function opsIsOnline(modem) {
     return modem && String(modem.status || '').toLowerCase() === 'online';
 }
 
-function opsSignalLabel(signal) {
-    const value = Number(signal || 0);
-    if (value >= 70) return 'Tốt';
-    if (value >= 40) return 'Trung bình';
-    if (value > 0) return 'Yếu';
-    return 'Không có';
-}
-
 function opsMoney(value) {
     return `${Number(value || 0).toLocaleString('vi-VN')} đ`;
+}
+
+function bayBalanceLabel(bay) {
+    return bay && bay.balance_updated_at ? opsMoney(bay.balance_vnd) : 'Chưa kiểm tra';
 }
 
 function opsBalanceLabel(modem) {
     return modem && modem.balance_updated_at ? opsMoney(modem.balance_vnd) : 'Chưa kiểm tra';
 }
 
-function saveModemProfile(iccid, profile) {
-    return $.ajax({
-        url: `/api/v1/modems/${encodeURIComponent(iccid)}/profile`,
-        method: 'PATCH',
-        contentType: 'application/json',
-        data: JSON.stringify(profile)
-    });
+function opsSlotByICCID() {
+    const map = {};
+    opsState.bays.forEach(bay => { if (bay.current_iccid && bay.slot_number) map[bay.current_iccid] = bay.slot_number; });
+    return map;
 }
 
-function opsMappedModems() {
-    return opsState.modems.filter(modem => opsState.previewMappings[modem.iccid]);
-}
-
-function opsUnassignedModems() {
-    return opsState.modems.filter(modem => !opsState.previewMappings[modem.iccid]);
+function assignBaySlot(imei, slot) {
+    return $.ajax({ url: `/api/v1/bays/${encodeURIComponent(imei)}`, method: 'PATCH', contentType: 'application/json', data: JSON.stringify({ slot_number: slot }) });
 }
 
 function opsAlerts() {
     const alerts = [];
-    const unassigned = opsUnassignedModems();
+    const unassigned = buildTrayCells(opsState.bays, Date.now()).unassigned;
     if (unassigned.length) {
         alerts.push({
             level: 'warning',
@@ -161,7 +132,7 @@ function opsAlerts() {
 
 function renderOpsKPIs() {
     const online = opsState.modems.filter(opsIsOnline).length;
-    const mapped = opsMappedModems().length;
+    const mapped = Object.keys(opsSlotByICCID()).length;
     const unread = opsState.messages.filter(message => message.type === 'received' && !message.is_read).length;
     const cards = [
         { label: 'Modem trực tuyến', value: `${online}/32`, note: `${32 - mapped} khe chưa có mapping`, icon: 'bi-router', tone: 'mint' },
@@ -208,23 +179,12 @@ function renderSimRails() {
 }
 
 function renderMiniSlots() {
-    const mappedSlots = new Set(Object.values(opsState.previewMappings).map(Number));
+    const { cells } = buildTrayCells(opsState.bays, Date.now());
     const grid = $('#ops-mini-slots').empty();
-    for (let slot = 1; slot <= 32; slot += 1) {
-        const item = opsElement('div', `mini-slot${mappedSlots.has(slot) ? ' is-online' : ''}`, String(slot).padStart(2, '0'));
-        item.attr('title', mappedSlots.has(slot) ? `Khe ${slot}: đã gán` : `Khe ${slot}: chưa gán`);
+    cells.forEach(cell => {
+        const item = opsElement('div', `mini-slot tone-${cell.tone}${cell.swapped ? ' is-swapped' : ''}`, String(cell.slot).padStart(2, '0'));
+        item.attr('title', cell.bay ? `Khe ${cell.slot}: ${cell.bay.phone_number || cell.bay.current_iccid || 'không có SIM'}` : `Khe ${cell.slot}: chưa gán modem`);
         grid.append(item);
-    }
-
-    const strip = $('#ops-unassigned').empty();
-    const unassigned = opsUnassignedModems();
-    if (!unassigned.length) {
-        strip.append(opsElement('div', 'ops-list-note', 'Tất cả modem đã được gán khe trong bản preview.'));
-        return;
-    }
-    strip.append(opsElement('div', 'ops-list-title', 'Thiết bị trực tuyến chưa gán'));
-    unassigned.forEach(modem => {
-        strip.append(opsElement('div', 'ops-list-note', `${modem.port_name || 'Chưa rõ COM'} · ${modem.iccid} · sóng ${modem.signal_strength || 0}%`));
     });
 }
 
@@ -303,7 +263,7 @@ function renderConversationThread(thread, container) {
         const outgoing = message.type === 'sent';
         const bubble = opsElement('article', `message-bubble ${outgoing ? 'is-outgoing' : 'is-incoming'}`);
         bubble.append(opsElement('div', 'message-copy', message.content || 'Không có nội dung'));
-        bubble.append(opsElement('div', 'message-route', describeOpsMessageRoute(message, opsState.modems, opsState.previewMappings, opsState.phoneNumbers)));
+        bubble.append(opsElement('div', 'message-route', describeOpsMessageRoute(message, opsState.modems, opsSlotByICCID(), opsState.phoneNumbers)));
         const meta = opsElement('div', 'message-meta');
         const status = opsMessageStatus(message);
         meta.append(opsElement('span', `message-status status-${status.className}`, status.label));
@@ -376,97 +336,217 @@ if (typeof window !== 'undefined') {
 
 function renderLiveUnassigned() {
     const container = $('#ops-live-unassigned').empty();
+    const { cells, unassigned } = buildTrayCells(opsState.bays, Date.now());
     const header = opsElement('div', 'ops-panel-head');
     const heading = opsElement('div');
-    heading.append(opsElement('div', 'eyebrow', 'Thiết bị phát hiện qua USB'));
-    heading.append(opsElement('h2', '', 'Chưa gán khe vật lý'));
+    heading.append(opsElement('div', 'eyebrow', 'Modem phát hiện qua USB'));
+    heading.append(opsElement('h2', '', 'Chưa gán khe'));
     header.append(heading);
     container.append(header);
 
-    const unassigned = opsUnassignedModems();
     if (!unassigned.length) {
-        container.append(opsElement('div', 'ops-empty', 'Không còn thiết bị chờ gán.'));
+        container.append(opsElement('div', 'ops-empty', 'Không còn modem chờ gán khe.'));
         return;
     }
-    unassigned.forEach(modem => {
+    const freeSlots = cells.filter(cell => !cell.bay);
+    unassigned.forEach(bay => {
         const row = opsElement('div', 'unassigned-device');
         const identity = opsElement('div');
-        identity.append(opsElement('strong', '', modem.port_name || 'COM chưa rõ'));
-        identity.append(opsElement('div', 'ops-list-note', `${modem.iccid} · IMEI ${modem.imei || 'chưa đọc được'}`));
+        identity.append(opsElement('strong', '', bay.port_name || 'COM chưa rõ'));
+        identity.append(opsElement('div', 'ops-list-note', [`IMEI …${String(bay.imei).slice(-4)}`, bay.phone_number || bay.current_iccid || 'không có SIM'].join(' · ')));
         row.append(identity);
 
-        const select = $('<select>').addClass('form-select form-select-sm preview-slot-select').attr('aria-label', `Chọn khe cho ${modem.port_name || modem.iccid}`);
+        const select = $('<select>').addClass('form-select form-select-sm').attr('aria-label', `Chọn khe cho ${bay.port_name || bay.imei}`);
         select.append($('<option>').val('').text('Chọn khe…'));
-        for (let slot = 1; slot <= 32; slot += 1) {
-            select.append($('<option>').val(slot).text(`Khe ${String(slot).padStart(2, '0')}`));
-        }
-        const phoneInput = $('<input>').addClass('form-control form-control-sm preview-phone-input').attr({
-            type: 'tel',
-            inputmode: 'tel',
-            placeholder: 'Số điện thoại',
-            'aria-label': `Số điện thoại của ${modem.port_name || modem.iccid}`
-        }).val(opsState.phoneNumbers[modem.iccid] || '');
-        const button = opsElement('button', 'btn btn-sm btn-dark', 'Gán thử');
+        freeSlots.forEach(cell => select.append($('<option>').val(cell.slot).text(`Khe ${String(cell.slot).padStart(2, '0')}`)));
+        const button = opsElement('button', 'btn btn-sm btn-dark', 'Gán khe');
         button.attr('type', 'button').click(function () {
             const slot = Number(select.val());
             if (!slot) return;
-            const phone = String(phoneInput.val() || '').trim();
             button.prop('disabled', true).text('Đang lưu…');
-            saveModemProfile(modem.iccid, { slot_number: slot, phone_number: phone })
-                .done(function (saved) {
-                    modem.slot_number = saved.slot_number;
-                    modem.phone_number = saved.phone_number;
-                    opsState.previewMappings[modem.iccid] = slot;
-                    opsState.phoneNumbers[modem.iccid] = phone;
-                    saveOpsProfiles();
-                    renderOperationsConsole();
-                    if (!$('#view-sms').hasClass('d-none')) loadSMS(currentSMSPage);
-                })
+            assignBaySlot(bay.imei, slot)
+                .done(loadOperationsData)
                 .fail(function (xhr) {
-                    button.prop('disabled', false).text('Gán thử');
-                    const message = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được hồ sơ';
-                    phoneInput.addClass('is-invalid').attr('title', message);
+                    button.prop('disabled', false).text('Gán khe');
+                    const message = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gán được khe';
+                    select.addClass('is-invalid').attr('title', message);
                 });
         });
-        row.append(opsElement('div', 'unassigned-actions').append(phoneInput, select, button));
+        row.append(opsElement('div', 'unassigned-actions').append(select, button));
         container.append(row);
     });
 }
 
-function renderSlotGrid() {
-    const bySlot = {};
-    opsState.modems.forEach(modem => {
-        const slot = opsState.previewMappings[modem.iccid];
-        if (slot) bySlot[slot] = modem;
-    });
-    const grid = $('#ops-slot-grid').empty();
-    for (let slot = 1; slot <= 32; slot += 1) {
-        const modem = bySlot[slot];
-        const card = opsElement('article', `slot-card${modem ? ' has-modem' : ''}`);
-        const top = opsElement('div', 'd-flex justify-content-between align-items-center');
-        top.append(opsElement('span', 'slot-number', `KHE ${String(slot).padStart(2, '0')}`));
-        if (modem) top.append(opsElement('span', 'health-dot is-online', 'Online'));
-        card.append(top);
-        card.append(opsElement('div', 'slot-state', modem ? (opsState.phoneNumbers[modem.iccid] || modem.name || modem.port_name || modem.iccid) : 'Chưa gán SIM'));
-        card.append(opsElement('div', 'slot-meta', modem ? `${modem.port_name} · ${opsSignalLabel(modem.signal_strength)} ${modem.signal_strength || 0}%` : 'Sẵn sàng nhận mapping'));
-        if (modem) card.append(opsElement('div', 'slot-meta mono', `ICCID ${modem.iccid} · IMEI ${modem.imei || '—'}`));
-        if (modem) card.append(opsElement('div', 'slot-meta', `Số dư ${opsBalanceLabel(modem)}${modem.balance_updated_at ? ` · ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : ''}`));
-        if (modem && modem.hardware_path) card.append(opsElement('div', 'slot-meta hardware-path', modem.hardware_path));
-        if (modem) {
-            card.attr({ role: 'link', tabindex: '0' })
-                .click(() => window.navigateApp('slots', modem.iccid))
-                .on('keydown', event => { if (event.key === 'Enter') window.navigateApp('slots', modem.iccid); });
-            const reset = opsElement('button', 'text-action mt-2', 'Bỏ mapping preview');
-            reset.attr('type', 'button').click(function (event) {
-                event.stopPropagation();
-                delete opsState.previewMappings[modem.iccid];
-                saveOpsProfiles();
-                renderOperationsConsole();
-            });
-            card.append(reset);
-        }
-        grid.append(card);
+function bayCard(cell) {
+    const bay = cell.bay;
+    const card = opsElement('button', `bay ${cell.tone}${cell.swapped ? ' swapped' : ''}`);
+    card.attr('type', 'button').prop('disabled', cell.tone === 'missing');
+    const body = opsElement('div');
+    body.append(opsElement('div', 'num', `Khe ${String(cell.slot).padStart(2, '0')}`));
+    if (!bay) {
+        body.append(opsElement('div', 'phone', 'Chưa gán modem'));
+    } else if (!bay.current_iccid) {
+        body.append(opsElement('div', 'phone', 'Không có SIM'));
+        body.append(opsElement('div', 'op', bay.port_name || `IMEI …${String(bay.imei || '').slice(-4)}`));
+    } else {
+        body.append(opsElement('div', 'phone', bay.phone_number || bay.current_iccid));
+        body.append(opsElement('div', 'op', [bay.operator, bay.port_name].filter(Boolean).join(' · ') || '—'));
+        body.append(opsElement('div', `bal${bay.balance_updated_at && bay.balance_vnd < 20000 ? ' low' : ''}`, bayBalanceLabel(bay)));
     }
+    card.append(opsElement('span', 'chip'), body, opsElement('span', 'dot'));
+    if (cell.swapped) card.append(opsElement('span', 'swap', '↔ 24h'));
+    if (bay) card.click(() => showTrayPop(cell, card));
+    return card;
+}
+
+function showTrayPop(cell, card) {
+    const bay = cell.bay;
+    const pop = $('#ops-tray-pop').empty();
+    const panel = card.closest('.ops-panel');
+    const r = card[0].getBoundingClientRect();
+    const p = panel[0].getBoundingClientRect();
+    pop.css({ left: Math.min(r.left - p.left, p.width - 280) + 'px', top: (r.bottom - p.top + 6) + 'px' });
+    pop.append(opsElement('b', '', `Khe ${cell.slot}${bay.phone_number ? ' · ' + bay.phone_number : ''}`));
+    const dl = $('<dl>');
+    const rows = bay.current_iccid
+        ? [['ICCID', bay.current_iccid], ['IMEI', bay.imei], ['Nhà mạng', bay.operator || '—'], ['Số dư', bayBalanceLabel(bay)], ['Ở khe từ', bay.last_event_at ? new Date(bay.last_event_at).toLocaleString('vi-VN') : '—']]
+        : [['IMEI', bay.imei], ['Cổng', bay.port_name || '—']];
+    rows.forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
+    pop.append(dl);
+    if (bay.current_iccid) {
+        const link = opsElement('a', 'text-action', 'Xem lịch sử khe →').attr('href', '#');
+        link.click(event => { event.preventDefault(); openSlotHistory(bay.current_iccid); });
+        pop.append(opsElement('div', 'mt-2').append(link));
+    }
+    pop.prop('hidden', false);
+}
+
+function renderTray() {
+    const { cells } = buildTrayCells(opsState.bays, Date.now());
+    const tray = $('#ops-tray').empty();
+    cells.forEach(cell => tray.append(bayCard(cell)));
+}
+
+function showSlotTab(tab) {
+    opsState.slotTab = tab;
+    $('[data-slot-tab]').each(function () { $(this).toggleClass('is-active', $(this).data('slot-tab') === tab); });
+    ['tray', 'history', 'calibration'].forEach(name => $(`#slot-tab-${name}`).toggleClass('d-none', name !== tab));
+}
+
+function openSlotHistory(iccid) {
+    showSlotTab('history');
+    window.navigateApp('slots', iccid);
+}
+
+function loadSlotEvents(iccid) {
+    const params = { iccid, page_size: 500 };
+    const from = $('#slot-events-from').val();
+    const to = $('#slot-events-to').val();
+    if (from) params.from = from;
+    if (to) params.to = to;
+    return $.get('/api/v1/slot-events', params).done(function (response) {
+        opsState.slotEvents = response.data || [];
+        renderSlotHistory();
+        renderAuditPreview();
+    });
+}
+
+function renderSlotHistory() {
+    const route = window.currentAppRoute ? window.currentAppRoute() : { iccid: '' };
+    const card = $('#ops-slot-sim-card').empty();
+    const timeline = $('#ops-slot-timeline').empty();
+    if (!route.iccid) {
+        card.append(opsElement('div', 'ops-empty', 'Chọn một khe trên bản đồ khay rồi bấm "Xem lịch sử khe".'));
+        return;
+    }
+    const bay = opsState.bays.find(b => b.current_iccid === route.iccid);
+    const modem = opsState.modems.find(m => m.iccid === route.iccid) || {};
+    card.append(opsElement('div', 'eyebrow', 'SIM · ICCID'));
+    card.append(opsElement('h3', 'mono', route.iccid));
+    const dl = $('<dl>').addClass('kv');
+    [['Số thuê bao', modem.phone_number || '—'], ['Số dư', opsBalanceLabel(modem)], ['Lần đảo', `${opsState.slotEvents.filter(e => e.event === 'moved').length} lần`]]
+        .forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
+    card.append(dl);
+    card.append(opsElement('div', 'now', bay
+        ? [`Đang ở khe ${bay.slot_number || '— (chưa gán)'}`, bay.port_name, bay.status === 'online' ? 'trực tuyến' : 'ngoại tuyến'].filter(Boolean).join(' · ')
+        : 'Hiện không nằm trong khay'));
+
+    if (!opsState.slotEvents.length) {
+        timeline.append(opsElement('div', 'ops-empty', 'Chưa có sự kiện đổi khe cho SIM này.'));
+        return;
+    }
+    const icons = { moved: 'bi-arrow-left-right', removed: 'bi-eject', inserted: 'bi-box-arrow-in-down' };
+    groupSlotEventsByDay(opsState.slotEvents).forEach(group => {
+        timeline.append(opsElement('div', 'day', new Date(group.day).toLocaleDateString('vi-VN')));
+        const ul = $('<ul>').addClass('timeline');
+        group.events.forEach(event => {
+            const d = describeSlotEvent(event);
+            const li = $('<li>');
+            const when = opsElement('div', 'when');
+            when.append(opsElement('b', '', new Date(event.detected_at).toLocaleTimeString('vi-VN')), document.createTextNode(event.port_name || ''));
+            const ico = opsElement('span', `ico ${d.tone}`).append($('<i>').addClass(`bi ${icons[event.event] || 'bi-dot'}`));
+            const what = opsElement('div', 'what');
+            what.append(opsElement('span', 'path', d.path));
+            if (event.operator) what.append(opsElement('small', '', event.operator));
+            const bal = opsElement('div', `bal${d.balance === '—' ? ' na' : ''}`, d.balance).append(opsElement('small', '', d.balanceNote));
+            li.append(when, ico, what, bal);
+            ul.append(li);
+        });
+        timeline.append(ul);
+    });
+}
+
+function renderBayCalibration() {
+    const { cells, unassigned } = buildTrayCells(opsState.bays, Date.now());
+    const body = $('#ops-cal-body').empty();
+    const assigned = cells.filter(c => c.bay).length;
+    $('#ops-cal-summary').text(`${assigned}/32 khe đã gán · ${unassigned.length} modem chưa gán`);
+    const freeSlots = cells.filter(c => !c.bay).map(c => c.slot);
+    const isAdmin = typeof auth !== 'undefined' && auth.role === 'admin';
+    const pill = bay => !bay ? opsElement('span', 'pill off', 'Chưa gán')
+        : !bay.current_iccid ? opsElement('span', 'pill warn', 'Không SIM')
+        : bay.status === 'online' ? opsElement('span', 'pill ok', 'Trực tuyến') : opsElement('span', 'pill off', 'Ngoại tuyến');
+    const failMark = (input, xhr, fallback) => input.addClass('is-invalid').attr('title', xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : fallback);
+    const phoneCell = bay => {
+        const td = $('<td>').addClass('mono');
+        if (!bay || !bay.current_iccid || !isAdmin) return td.text(bay && bay.phone_number ? bay.phone_number : '—');
+        const input = $('<input>').attr({ type: 'tel', 'aria-label': `Số thuê bao khe ${bay.slot_number || bay.imei}` }).addClass('form-control form-control-sm mono').val(bay.phone_number || '');
+        input.change(function () {
+            $.ajax({ url: `/api/v1/modems/${encodeURIComponent(bay.current_iccid)}/profile`, method: 'PATCH', contentType: 'application/json', data: JSON.stringify({ phone_number: input.val().trim() }) })
+                .done(loadOperationsData)
+                .fail(xhr => failMark(input, xhr, 'Không lưu được số thuê bao'));
+        });
+        return td.append(input);
+    };
+    const row = (slot, bay) => {
+        const tr = $('<tr>');
+        tr.append($('<td>').addClass('mono').text(slot ? String(slot).padStart(2, '0') : '—'));
+        tr.append($('<td>').addClass('mono').text(bay ? bay.imei : '—'));
+        tr.append($('<td>').addClass('mono').text(bay && bay.current_iccid ? bay.current_iccid : '—'));
+        tr.append(phoneCell(bay));
+        tr.append($('<td>').append(pill(bay)));
+        tr.append($('<td>').addClass('mono').text(bay && bay.last_seen_at ? new Date(bay.last_seen_at).toLocaleString('vi-VN') : '—'));
+        const actions = $('<td>');
+        if (bay && !isAdmin) {
+            actions.text(slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán');
+        } else if (bay) {
+            const select = $('<select>').addClass('form-select form-select-sm').attr('aria-label', `Đổi khe cho ${bay.imei}`);
+            select.append($('<option>').val('').text(slot ? 'Bỏ gán' : 'Chọn khe…'));
+            freeSlots.forEach(s => select.append($('<option>').val(s).text(`Khe ${String(s).padStart(2, '0')}`)));
+            select.change(function () {
+                const value = $(this).val();
+                if (!value && !slot) return;
+                assignBaySlot(bay.imei, value ? Number(value) : null)
+                    .done(loadOperationsData)
+                    .fail(xhr => failMark(select, xhr, 'Không gán được khe'));
+            });
+            actions.append(select);
+        }
+        tr.append(actions);
+        return tr;
+    };
+    cells.forEach(c => body.append(row(c.slot, c.bay)));
+    unassigned.forEach(b => body.append(row(null, b)));
 }
 
 function balanceNeedsRefresh(modem) {
@@ -520,7 +600,8 @@ function requestBalanceCheck(modem) {
 }
 
 function renderMaintenancePreview() {
-    const mapped = opsMappedModems();
+    const slots = opsSlotByICCID();
+    const mapped = opsState.modems.filter(modem => slots[modem.iccid]);
     const route = window.currentAppRoute ? window.currentAppRoute() : { view: 'maintenance', iccid: '' };
     const summary = [
         { label: 'Lịch đang bật', value: '0', note: 'Khóa trong giai đoạn preview', icon: 'bi-calendar2-check', tone: 'mint' },
@@ -546,7 +627,7 @@ function renderMaintenancePreview() {
         return;
     }
     opsState.modems.forEach(modem => {
-        const slot = opsState.previewMappings[modem.iccid];
+        const slot = slots[modem.iccid];
         const selected = route.iccid === modem.iccid;
         const card = opsElement('article', `schedule-card${selected ? ' is-selected' : ''}`);
         card.attr({ role: 'link', tabindex: '0' })
@@ -650,7 +731,7 @@ function renderReportPreview() {
 
 function renderAuditPreview() {
     const body = $('#ops-audit-body').empty();
-    if (!opsState.messages.length) {
+    if (!opsState.messages.length && !opsState.slotEvents.length) {
         body.append($('<tr>').append($('<td>').attr('colspan', 5).append(opsElement('div', 'ops-empty', 'Chưa có sự kiện để hiển thị.'))));
         return;
     }
@@ -663,6 +744,15 @@ function renderAuditPreview() {
         row.append($('<td>').append(opsElement('span', `status-chip status-${message.type === 'sent' ? 'ready' : 'ok'}`, opsMessageStatus(message).label)));
         body.append(row);
     });
+    opsState.slotEvents.slice(0, 20).forEach(event => {
+        const row = $('<tr>');
+        row.append($('<td>').text(new Date(event.detected_at).toLocaleString('vi-VN')));
+        row.append($('<td>').text('system'));
+        row.append($('<td>').text('Đổi khe'));
+        row.append($('<td>').text(`${event.iccid} · ${describeSlotEvent(event).path}`));
+        row.append($('<td>').append(opsElement('span', 'status-chip status-ok', event.event)));
+        body.append(row);
+    });
 }
 
 function renderOperationsConsole() {
@@ -672,7 +762,9 @@ function renderOperationsConsole() {
     renderOpsAlertSummary();
     renderRecentMessages();
     renderLiveUnassigned();
-    renderSlotGrid();
+    renderTray();
+    renderBayCalibration();
+    renderSlotHistory();
     renderMaintenancePreview();
     renderAlertCenter();
     renderReportPreview();
@@ -683,12 +775,13 @@ function loadOperationsData() {
     $('#btn-refresh-ops').prop('disabled', true);
     $.when(
         $.get('/api/v1/modems'),
-        $.get('/api/v1/sms', { page: 1, limit: 200 })
-    ).done(function (modemResponse, smsResponse) {
+        $.get('/api/v1/sms', { page: 1, limit: 200 }),
+        $.get('/api/v1/bays')
+    ).done(function (modemResponse, smsResponse, bayResponse) {
         opsState.modems = modemResponse[0] || [];
         opsState.messages = (smsResponse[0] && smsResponse[0].data) || [];
+        opsState.bays = bayResponse[0] || [];
         opsState.modems.forEach(modem => {
-            if (modem.slot_number) opsState.previewMappings[modem.iccid] = modem.slot_number;
             if (modem.phone_number) opsState.phoneNumbers[modem.iccid] = modem.phone_number;
         });
         opsState.loadedAt = new Date();
@@ -700,12 +793,101 @@ function loadOperationsData() {
     });
 }
 
+const TRAY_SLOTS = 32;
+const SWAP_HIGHLIGHT_MS = 24 * 60 * 60 * 1000;
+
+function trayTone(bay) {
+    if (!bay) return 'missing';
+    if (!bay.current_iccid) return 'empty';
+    if (bay.status !== 'online') return 'offline';
+    if ((bay.signal_strength || 0) < 20) return 'weak';
+    return 'online';
+}
+
+function buildTrayCells(bays, now) {
+    const bySlot = {};
+    const unassigned = [];
+    (bays || []).forEach(bay => {
+        if (bay.slot_number) bySlot[bay.slot_number] = bay; else unassigned.push(bay);
+    });
+    const cells = [];
+    for (let slot = 1; slot <= TRAY_SLOTS; slot += 1) {
+        const bay = bySlot[slot];
+        const swapped = !!(bay && bay.last_event_at && (now - new Date(bay.last_event_at).getTime()) < SWAP_HIGHLIGHT_MS);
+        cells.push({ slot, bay: bay || null, tone: trayTone(bay), swapped });
+    }
+    return { cells, unassigned };
+}
+
+function slotEventDay(event) {
+    const d = new Date(event.detected_at);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function groupSlotEventsByDay(events) {
+    const sorted = (events || []).slice().sort((a, b) => new Date(b.detected_at) - new Date(a.detected_at));
+    const groups = [];
+    sorted.forEach(event => {
+        const day = slotEventDay(event);
+        let group = groups[groups.length - 1];
+        if (!group || group.day !== day) {
+            group = { day, events: [] };
+            groups.push(group);
+        }
+        group.events.push(event);
+    });
+    return groups;
+}
+
+function slotLabel(slot) {
+    return slot ? `Khe ${slot}` : 'Chưa gán khe';
+}
+
+function describeSlotEvent(event) {
+    let path;
+    let balanceNote;
+    if (event.event === 'moved') {
+        path = `${slotLabel(event.from_slot)} → ${slotLabel(event.to_slot)}`;
+        balanceNote = 'số dư lúc vào khe';
+    } else if (event.event === 'removed') {
+        path = `${slotLabel(event.from_slot)} → rút ra`;
+        balanceNote = 'số dư lúc rời khe';
+    } else {
+        path = slotLabel(event.to_slot);
+        balanceNote = 'số dư lúc vào khe';
+    }
+    const hasBalance = event.balance_vnd !== null && event.balance_vnd !== undefined;
+    return {
+        path,
+        tone: event.event,
+        balance: hasBalance ? opsMoney(event.balance_vnd) : '—',
+        balanceNote: hasBalance ? balanceNote : (event.event === 'removed' ? 'không đọc số dư' : 'USSD quá hạn')
+    };
+}
+
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
-    loadOpsProfiles();
+    $(document).on('click', e => { if (!$(e.target).closest('.bay, #ops-tray-pop').length) $('#ops-tray-pop').prop('hidden', true); });
+    $(document).on('keydown', e => { if (e.key === 'Escape') $('#ops-tray-pop').prop('hidden', true); });
+    $('[data-slot-tab]').click(function () { showSlotTab($(this).data('slot-tab')); });
+    $('#slot-events-from, #slot-events-to').change(function () {
+        const route = window.currentAppRoute();
+        if (route.view === 'slots' && route.iccid) loadSlotEvents(route.iccid);
+    });
+    $('#btn-export-slot-events').click(function () {
+        const rows = [['detected_at', 'event', 'iccid', 'imei', 'phone_number', 'from_slot', 'to_slot', 'balance_vnd', 'port_name']];
+        opsState.slotEvents.forEach(e => rows.push([e.detected_at, e.event, e.iccid, e.imei, e.phone_number || '', e.from_slot ?? '', e.to_slot ?? '', e.balance_vnd ?? '', e.port_name || '']));
+        const csv = rows.map(r => r.map(v => `"${String(v).replaceAll('"', '""')}"`).join(',')).join('\r\n');
+        const url = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `smsie-slot-events-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    });
     $('[data-open-view]').click(function () {
         const view = $(this).data('open-view');
         window.navigateApp(view);
@@ -752,6 +934,16 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         renderSimRails();
         if (['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(route.view)) {
             loadOperationsData();
+        }
+        if (route.view === 'slots' && route.iccid) {
+            showSlotTab('history');
+            loadSlotEvents(route.iccid);
+        }
+        if (route.view === 'audit') {
+            $.get('/api/v1/slot-events', { page_size: 200 }).done(function (response) {
+                opsState.slotEvents = response.data || [];
+                renderAuditPreview();
+            });
         }
     });
     if (auth.username && ['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(window.currentAppRoute().view)) {

@@ -46,6 +46,9 @@ func (w *ModemWorker) captureBalance(text string) bool {
 		return false
 	}
 	logger.Log.Infof("[%s] Balance updated for %s: %d VND", w.PortName, iccid, value)
+	if err := w.bayRepo.FillBalance(iccid, value, updatedAt); err != nil {
+		logger.Log.Warnf("[%s] Failed to attach balance to slot event: %v", w.PortName, err)
+	}
 	return true
 }
 
