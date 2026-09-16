@@ -427,10 +427,125 @@ function renderTray() {
     cells.forEach(cell => tray.append(bayCard(cell)));
 }
 
-// Task 8 điền: tab Lịch sử khe + Hiệu chuẩn.
-function renderBayCalibration() {}
-function renderSlotHistory() {}
-function openSlotHistory() {}
+function showSlotTab(tab) {
+    opsState.slotTab = tab;
+    $('[data-slot-tab]').each(function () { $(this).toggleClass('is-active', $(this).data('slot-tab') === tab); });
+    ['tray', 'history', 'calibration'].forEach(name => $(`#slot-tab-${name}`).toggleClass('d-none', name !== tab));
+}
+
+function openSlotHistory(iccid) {
+    showSlotTab('history');
+    window.navigateApp('slots', iccid);
+}
+
+function loadSlotEvents(iccid) {
+    const params = { iccid, page_size: 500 };
+    const from = $('#slot-events-from').val();
+    const to = $('#slot-events-to').val();
+    if (from) params.from = from;
+    if (to) params.to = to;
+    return $.get('/api/v1/slot-events', params).done(function (response) {
+        opsState.slotEvents = response.data || [];
+        renderSlotHistory();
+        renderAuditPreview();
+    });
+}
+
+function renderSlotHistory() {
+    const route = window.currentAppRoute ? window.currentAppRoute() : { iccid: '' };
+    const card = $('#ops-slot-sim-card').empty();
+    const timeline = $('#ops-slot-timeline').empty();
+    if (!route.iccid) {
+        card.append(opsElement('div', 'ops-empty', 'Chọn một khe trên bản đồ khay rồi bấm "Xem lịch sử khe".'));
+        return;
+    }
+    const bay = opsState.bays.find(b => b.current_iccid === route.iccid);
+    const modem = opsState.modems.find(m => m.iccid === route.iccid) || {};
+    card.append(opsElement('div', 'eyebrow', 'SIM · ICCID'));
+    card.append(opsElement('h3', 'mono', route.iccid));
+    const dl = $('<dl>').addClass('kv');
+    [['Số thuê bao', modem.phone_number || '—'], ['Số dư', opsBalanceLabel(modem)], ['Lần đảo', `${opsState.slotEvents.filter(e => e.event === 'moved').length} lần`]]
+        .forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
+    card.append(dl);
+    card.append(opsElement('div', 'now', bay
+        ? [`Đang ở khe ${bay.slot_number || '— (chưa gán)'}`, bay.port_name, bay.status === 'online' ? 'trực tuyến' : 'ngoại tuyến'].filter(Boolean).join(' · ')
+        : 'Hiện không nằm trong khay'));
+
+    if (!opsState.slotEvents.length) {
+        timeline.append(opsElement('div', 'ops-empty', 'Chưa có sự kiện đổi khe cho SIM này.'));
+        return;
+    }
+    const icons = { moved: 'bi-arrow-left-right', removed: 'bi-eject', inserted: 'bi-box-arrow-in-down' };
+    groupSlotEventsByDay(opsState.slotEvents).forEach(group => {
+        timeline.append(opsElement('div', 'day', new Date(group.day).toLocaleDateString('vi-VN')));
+        const ul = $('<ul>').addClass('timeline');
+        group.events.forEach(event => {
+            const d = describeSlotEvent(event);
+            const li = $('<li>');
+            const when = opsElement('div', 'when');
+            when.append(opsElement('b', '', new Date(event.detected_at).toLocaleTimeString('vi-VN')), document.createTextNode(event.port_name || ''));
+            const ico = opsElement('span', `ico ${d.tone}`).append($('<i>').addClass(`bi ${icons[event.event] || 'bi-dot'}`));
+            const what = opsElement('div', 'what');
+            what.append(opsElement('span', 'path', d.path));
+            if (event.operator) what.append(opsElement('small', '', event.operator));
+            const bal = opsElement('div', `bal${d.balance === '—' ? ' na' : ''}`, d.balance).append(opsElement('small', '', d.balanceNote));
+            li.append(when, ico, what, bal);
+            ul.append(li);
+        });
+        timeline.append(ul);
+    });
+}
+
+function renderBayCalibration() {
+    const { cells, unassigned } = buildTrayCells(opsState.bays, Date.now());
+    const body = $('#ops-cal-body').empty();
+    const assigned = cells.filter(c => c.bay).length;
+    $('#ops-cal-summary').text(`${assigned}/32 khe đã gán · ${unassigned.length} modem chưa gán`);
+    const freeSlots = cells.filter(c => !c.bay).map(c => c.slot);
+    const isAdmin = typeof auth !== 'undefined' && auth.role === 'admin';
+    const pill = bay => !bay ? opsElement('span', 'pill off', 'Chưa gán')
+        : !bay.current_iccid ? opsElement('span', 'pill warn', 'Không SIM')
+        : bay.status === 'online' ? opsElement('span', 'pill ok', 'Trực tuyến') : opsElement('span', 'pill off', 'Ngoại tuyến');
+    const failMark = (input, xhr, fallback) => input.addClass('is-invalid').attr('title', xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : fallback);
+    const phoneCell = bay => {
+        const td = $('<td>').addClass('mono');
+        if (!bay || !bay.current_iccid || !isAdmin) return td.text(bay && bay.phone_number ? bay.phone_number : '—');
+        const input = $('<input>').attr({ type: 'tel', 'aria-label': `Số thuê bao khe ${bay.slot_number || bay.imei}` }).addClass('form-control form-control-sm mono').val(bay.phone_number || '');
+        input.change(function () {
+            $.ajax({ url: `/api/v1/modems/${encodeURIComponent(bay.current_iccid)}/profile`, method: 'PATCH', contentType: 'application/json', data: JSON.stringify({ phone_number: input.val().trim() }) })
+                .done(loadOperationsData)
+                .fail(xhr => failMark(input, xhr, 'Không lưu được số thuê bao'));
+        });
+        return td.append(input);
+    };
+    const row = (slot, bay) => {
+        const tr = $('<tr>');
+        tr.append($('<td>').addClass('mono').text(slot ? String(slot).padStart(2, '0') : '—'));
+        tr.append($('<td>').addClass('mono').text(bay ? bay.imei : '—'));
+        tr.append($('<td>').addClass('mono').text(bay && bay.current_iccid ? bay.current_iccid : '—'));
+        tr.append(phoneCell(bay));
+        tr.append($('<td>').append(pill(bay)));
+        tr.append($('<td>').addClass('mono').text(bay && bay.last_seen_at ? new Date(bay.last_seen_at).toLocaleString('vi-VN') : '—'));
+        const actions = $('<td>');
+        if (bay) {
+            const select = $('<select>').addClass('form-select form-select-sm').attr('aria-label', `Đổi khe cho ${bay.imei}`);
+            select.append($('<option>').val('').text(slot ? 'Bỏ gán' : 'Chọn khe…'));
+            freeSlots.forEach(s => select.append($('<option>').val(s).text(`Khe ${String(s).padStart(2, '0')}`)));
+            select.change(function () {
+                const value = $(this).val();
+                if (!value && !slot) return;
+                assignBaySlot(bay.imei, value ? Number(value) : null)
+                    .done(loadOperationsData)
+                    .fail(xhr => failMark(select, xhr, 'Không gán được khe'));
+            });
+            actions.append(select);
+        }
+        tr.append(actions);
+        return tr;
+    };
+    cells.forEach(c => body.append(row(c.slot, c.bay)));
+    unassigned.forEach(b => body.append(row(null, b)));
+}
 
 function balanceNeedsRefresh(modem) {
     if (!modem.balance_updated_at) return true;
@@ -614,7 +729,7 @@ function renderReportPreview() {
 
 function renderAuditPreview() {
     const body = $('#ops-audit-body').empty();
-    if (!opsState.messages.length) {
+    if (!opsState.messages.length && !opsState.slotEvents.length) {
         body.append($('<tr>').append($('<td>').attr('colspan', 5).append(opsElement('div', 'ops-empty', 'Chưa có sự kiện để hiển thị.'))));
         return;
     }
@@ -625,6 +740,15 @@ function renderAuditPreview() {
         row.append($('<td>').text(message.type === 'sent' ? 'Gửi SMS' : 'Nhận SMS'));
         row.append($('<td>').text(`${message.phone || 'Không rõ số'} · ${message.iccid || 'Không rõ SIM'}`));
         row.append($('<td>').append(opsElement('span', `status-chip status-${message.type === 'sent' ? 'ready' : 'ok'}`, opsMessageStatus(message).label)));
+        body.append(row);
+    });
+    opsState.slotEvents.slice(0, 20).forEach(event => {
+        const row = $('<tr>');
+        row.append($('<td>').text(new Date(event.detected_at).toLocaleString('vi-VN')));
+        row.append($('<td>').text('system'));
+        row.append($('<td>').text('Đổi khe'));
+        row.append($('<td>').text(`${event.iccid} · ${describeSlotEvent(event).path}`));
+        row.append($('<td>').append(opsElement('span', 'status-chip status-ok', event.event)));
         body.append(row);
     });
 }
@@ -746,11 +870,21 @@ if (typeof module !== 'undefined') {
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
     $(document).on('click', e => { if (!$(e.target).closest('.bay, #ops-tray-pop').length) $('#ops-tray-pop').prop('hidden', true); });
     $(document).on('keydown', e => { if (e.key === 'Escape') $('#ops-tray-pop').prop('hidden', true); });
-    $('.ops-tab').click(function () {
-        opsState.slotTab = $(this).data('slot-tab');
-        $('.ops-tab').removeClass('is-active').filter(this).addClass('is-active');
-        $('.slot-tab').addClass('d-none');
-        $(`#slot-tab-${opsState.slotTab}`).removeClass('d-none');
+    $('[data-slot-tab]').click(function () { showSlotTab($(this).data('slot-tab')); });
+    $('#slot-events-from, #slot-events-to').change(function () {
+        const route = window.currentAppRoute();
+        if (route.view === 'slots' && route.iccid) loadSlotEvents(route.iccid);
+    });
+    $('#btn-export-slot-events').click(function () {
+        const rows = [['detected_at', 'event', 'iccid', 'imei', 'phone_number', 'from_slot', 'to_slot', 'balance_vnd', 'port_name']];
+        opsState.slotEvents.forEach(e => rows.push([e.detected_at, e.event, e.iccid, e.imei, e.phone_number || '', e.from_slot ?? '', e.to_slot ?? '', e.balance_vnd ?? '', e.port_name || '']));
+        const csv = rows.map(r => r.map(v => `"${String(v).replaceAll('"', '""')}"`).join(',')).join('\r\n');
+        const url = URL.createObjectURL(new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `smsie-slot-events-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
     });
     $('[data-open-view]').click(function () {
         const view = $(this).data('open-view');
@@ -798,6 +932,10 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         renderSimRails();
         if (['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(route.view)) {
             loadOperationsData();
+        }
+        if (route.view === 'slots' && route.iccid) {
+            showSlotTab('history');
+            loadSlotEvents(route.iccid);
         }
     });
     if (auth.username && ['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(window.currentAppRoute().view)) {
