@@ -88,6 +88,15 @@ func (w *ModemWorker) checkSignal(session *atSession) {
 	regCode := w.checkRegistration(session)
 	if regCode == "1" || regCode == "5" {
 		w.checkOperator(session)
+		if time.Since(w.lastRegisteredWrite) >= 10*time.Minute {
+			if iccid := w.modemICCID(); iccid != "" {
+				if err := w.repo.TouchRegistered(iccid, time.Now()); err == nil {
+					w.lastRegisteredWrite = time.Now()
+				} else {
+					logger.Log.Warnf("[%s] Touch last_registered_at failed: %v", w.PortName, err)
+				}
+			}
+		}
 	} else if regCode != "" {
 		w.updateModem(func(modem *model.Modem) {
 			modem.Operator = ""

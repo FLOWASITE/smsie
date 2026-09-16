@@ -56,6 +56,8 @@ type Modem struct {
 	BalanceVND        int64      `gorm:"column:balance_vnd;default:0" json:"balance_vnd"`
 	BalanceUpdatedAt  *time.Time `gorm:"column:balance_updated_at" json:"balance_updated_at,omitempty"`
 	LowBalanceVND     *int64     `gorm:"column:low_balance_vnd" json:"low_balance_vnd,omitempty"` // ngưỡng riêng, nil = dùng config
+	LastRegisteredAt  *time.Time `gorm:"column:last_registered_at" json:"last_registered_at,omitempty"`
+	FirstSeenAt       *time.Time `gorm:"column:first_seen_at" json:"first_seen_at,omitempty"`
 	SIPEnabled        bool       `gorm:"column:sip_enabled" json:"sip_enabled"`
 	SIPUsername       string     `gorm:"column:sip_username" json:"sip_username,omitempty"`
 	SIPPassword       string     `gorm:"column:sip_password" json:"-"`
@@ -164,4 +166,19 @@ type BalanceAlert struct {
 	BalanceVND int64     `gorm:"column:balance_vnd" json:"balance_vnd"`
 	DaysLeft   *float64  `gorm:"column:days_left" json:"days_left,omitempty"`
 	SentAt     time.Time `gorm:"index" json:"sent_at"`
+}
+
+const (
+	SimAlertNoSMS        = "no_sms"
+	SimAlertUnregistered = "unregistered"
+	SimAlertAbsent       = "absent"
+)
+
+// SimAlert ghi lại mỗi lần đã cảnh báo SIM "chết" (nhắc lại theo remind_days).
+type SimAlert struct {
+	ID     uint      `gorm:"primaryKey" json:"id"`
+	ICCID  string    `gorm:"column:iccid;size:32;index" json:"iccid"`
+	Kind   string    `gorm:"size:16;index" json:"kind"`
+	Detail string    `gorm:"size:255" json:"detail"`
+	SentAt time.Time `gorm:"index" json:"sent_at"`
 }

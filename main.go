@@ -230,6 +230,10 @@ func initDB() *gorm.DB {
 	if err := autoMigrateSchema(db); err != nil {
 		logger.Log.Fatalf("Failed to migrate database schema: %v", err)
 	}
+	// Backfill first_seen_at cho SIM có trước tính năng: lấy SMS đầu tiên, không có thì bây giờ.
+	if err := db.Exec("UPDATE modems SET first_seen_at = COALESCE((SELECT MIN(timestamp) FROM sms WHERE sms.iccid = modems.iccid), ?) WHERE first_seen_at IS NULL", time.Now()).Error; err != nil {
+		logger.Log.Warnf("Backfill first_seen_at failed: %v", err)
+	}
 	if err := repository.NewBayRepository(db).MigrateFromModems(); err != nil {
 		logger.Log.Fatalf("Failed to migrate slot numbers to modem bays: %v", err)
 	}
@@ -276,7 +280,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {

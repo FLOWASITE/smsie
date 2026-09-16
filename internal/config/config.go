@@ -8,14 +8,23 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Serial   SerialConfig   `mapstructure:"serial"`
-	Calling  CallingConfig  `mapstructure:"calling"`
-	Webhook  WebhookConfig  `mapstructure:"webhook"`
-	Users    UsersConfig    `mapstructure:"users"`
-	Log      LogConfig      `mapstructure:"log"`
-	Balance  BalanceConfig  `mapstructure:"balance"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Serial    SerialConfig    `mapstructure:"serial"`
+	Calling   CallingConfig   `mapstructure:"calling"`
+	Webhook   WebhookConfig   `mapstructure:"webhook"`
+	Users     UsersConfig     `mapstructure:"users"`
+	Log       LogConfig       `mapstructure:"log"`
+	Balance   BalanceConfig   `mapstructure:"balance"`
+	SimHealth SimHealthConfig `mapstructure:"sim_health"`
+}
+
+type SimHealthConfig struct {
+	Enabled           bool `mapstructure:"enabled"`
+	NoSMSDays         int  `mapstructure:"no_sms_days"`
+	UnregisteredHours int  `mapstructure:"unregistered_hours"`
+	AbsentDays        int  `mapstructure:"absent_days"`
+	RemindDays        int  `mapstructure:"remind_days"`
 }
 
 type BalanceConfig struct {
@@ -101,6 +110,11 @@ func LoadConfig() {
 	viper.SetDefault("balance.low_threshold_vnd", 20000)
 	viper.SetDefault("balance.forecast_days", 7)
 	viper.SetDefault("balance.ussd_code", "*101#")
+	viper.SetDefault("sim_health.enabled", true)
+	viper.SetDefault("sim_health.no_sms_days", 30)
+	viper.SetDefault("sim_health.unregistered_hours", 24)
+	viper.SetDefault("sim_health.absent_days", 7)
+	viper.SetDefault("sim_health.remind_days", 7)
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file not found, using defaults. Error: %v", err)
