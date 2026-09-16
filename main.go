@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/pccr10001/smsie/internal/api"
+	"github.com/pccr10001/smsie/internal/audit"
 	"github.com/pccr10001/smsie/internal/balance"
 	"github.com/pccr10001/smsie/internal/keepalive"
 	"github.com/pccr10001/smsie/internal/calling"
@@ -122,6 +123,19 @@ func main() {
 	go sched.Run(schedStop)
 	ks := keepalive.NewService(db, wm, nil, webhookSvc, config.AppConfig.Keepalive)
 	go ks.Run(schedStop)
+	// Nhật ký hành động: dọn lúc khởi động + mỗi 24 h.
+	go func() {
+		for {
+			if err := audit.Prune(db, config.AppConfig.Audit.KeepDays); err != nil {
+				logger.Log.Warnf("audit: dọn nhật ký lỗi: %v", err)
+			}
+			select {
+			case <-schedStop:
+				return
+			case <-time.After(24 * time.Hour):
+			}
+		}
+	}()
 
 	// 6. Start Server
 	// Load Templates
@@ -143,6 +157,7 @@ func main() {
 	uh := api.NewUserHandler(db)
 	akh := api.NewAPIKeyHandler(db)
 	backupHandler := api.NewAdminBackupHandler(db, config.AppConfig.Database.Driver)
+	auditHandler := api.NewAuditHandler(db)
 	recordingHandler := api.NewCallRecordingHandler(db, "recordings")
 	mcpHTTP := api.NewMCPHTTPServer(db, wm)
 	r.Any("/mcp", gin.WrapH(mcpHTTP.Handler()))
@@ -155,6 +170,7 @@ func main() {
 		authGroup := apiGroup.Group("/")
 		authGroup.Use(api.AuthMiddleware(db))
 		authGroup.Use(api.APIKeyAllowedOnly())
+		authGroup.Use(audit.Middleware(db)) // sau AuthMiddleware; adminGroup lồng trong authGroup nên cũng được ghi
 		{
 			authGroup.POST("/change_password", uh.ChangePassword)
 			authGroup.GET("/apikeys", akh.ListMyAPIKeys)
@@ -205,6 +221,7 @@ func main() {
 				adminGroup.GET("/keepalive/runs", kah.Runs)
 				adminGroup.POST("/keepalive/run", kah.RunNow)
 				adminGroup.GET("/admin/backup", backupHandler.Download)
+				adminGroup.GET("/audit", auditHandler.List)
 
 				adminGroup.GET("/users", uh.ListUsers)
 				adminGroup.POST("/users", uh.CreateUser)
@@ -298,7 +315,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.PhoneNumberHistory{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.PhoneNumberHistory{}, &model.AuditLog{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {

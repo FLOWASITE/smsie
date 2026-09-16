@@ -8,6 +8,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/pccr10001/smsie/internal/audit"
 	"github.com/pccr10001/smsie/internal/config"
 	"github.com/pccr10001/smsie/internal/logic"
 	"github.com/pccr10001/smsie/internal/model"
@@ -253,6 +254,11 @@ func (s *Service) runOne(it Item, all []Item, force bool) (*model.KeepaliveRun, 
 	}
 	if err := s.repo.Add(run); err != nil {
 		return nil, err
+	}
+	if run.Status == model.KeepaliveSent {
+		_ = audit.Record(s.db, audit.Entry{Username: "system", Action: "keepalive.send", ICCID: it.ICCID, Target: run.TargetPhone, Status: 200})
+	} else if run.Status == model.KeepaliveFailed {
+		_ = audit.Record(s.db, audit.Entry{Username: "system", Action: "keepalive.send", ICCID: it.ICCID, Target: run.TargetPhone, Detail: run.Reason, Status: 500})
 	}
 	if run.Status != model.KeepaliveSent {
 		s.alert(it, run.Reason, alertWindow)

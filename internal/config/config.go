@@ -20,6 +20,12 @@ type Config struct {
 	Keepalive KeepaliveConfig `mapstructure:"keepalive"`
 	// PhoneLookup — tự tra số thuê bao qua USSD theo nhà mạng (Codes: tên nhà mạng → mã).
 	PhoneLookup PhoneLookupConfig `mapstructure:"phone_lookup"`
+	// Audit — nhật ký hành động; KeepDays: giữ bao nhiêu ngày (dọn lúc khởi động + hằng ngày).
+	Audit AuditConfig `mapstructure:"audit"`
+}
+
+type AuditConfig struct {
+	KeepDays int `mapstructure:"keep_days"`
 }
 
 type PhoneLookupConfig struct {
@@ -139,6 +145,7 @@ func LoadConfig() {
 	viper.SetDefault("keepalive.run_hour", 7)
 	viper.SetDefault("phone_lookup.enabled", true)
 	viper.SetDefault("phone_lookup.codes", map[string]string{"Viettel": "*098#", "Vinaphone": "*110#", "Mobifone": "*0#", "Vietnamobile": "*102#"})
+	viper.SetDefault("audit.keep_days", 365)
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file not found, using defaults. Error: %v", err)

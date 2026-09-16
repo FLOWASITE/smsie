@@ -70,3 +70,6 @@ phone_lookup:
     Vinaphone: "*110#"
     Mobifone: "*0#"
     Vietnamobile: "*102#"
+
+audit:
+  keep_days: 365           # giữ nhật ký hành động bao nhiêu ngày (dọn lúc khởi động + hằng ngày)

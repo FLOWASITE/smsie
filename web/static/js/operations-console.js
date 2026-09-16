@@ -8,6 +8,9 @@ const opsState = {
     balanceChecks: {},
     phoneLookups: {},
     phoneHistory: [],
+    audit: [],
+    auditTotal: 0,
+    auditPage: 1,
     balanceStatus: [],
     simHealth: [],
     keepalive: { config: {}, items: [] },
@@ -559,7 +562,6 @@ function loadSlotEvents(iccid) {
     return $.get('/api/v1/slot-events', params).done(function (response) {
         opsState.slotEvents = response.data || [];
         renderSlotHistory();
-        renderAuditPreview();
     });
 }
 
@@ -1012,30 +1014,70 @@ function renderReportPreview() {
     });
 }
 
-function renderAuditPreview() {
+// describeAudit: nhãn Việt cho mã hành động (thuần, có test node). Mã lạ → trả nguyên.
+const AUDIT_LABELS = {
+    'sms.send': 'Gửi SMS', 'call.dial': 'Gọi đi', 'call.hangup': 'Ngắt cuộc gọi', 'at.exec': 'Lệnh AT',
+    'balance.check': 'Đọc số dư', 'balance.run': 'Đọc số dư toàn bộ', 'phone.lookup': 'Đọc số thuê bao',
+    'modem.reboot': 'Khởi động lại modem', 'modem.profile': 'Sửa hồ sơ SIM', 'bay.assign': 'Gán khe',
+    'keepalive.run': 'Nuôi SIM (tay)', 'keepalive.send': 'Nuôi SIM (tự động)',
+    'user.create': 'Tạo người dùng', 'user.delete': 'Xoá người dùng', 'user.permissions': 'Đổi quyền người dùng',
+    'apikey.create': 'Tạo API key', 'apikey.rotate': 'Xoay API key', 'apikey.delete': 'Xoá API key',
+    'webhook.create': 'Tạo webhook', 'webhook.delete': 'Xoá webhook', 'auth.password': 'Đổi mật khẩu',
+    'backup.ok': 'Sao lưu thành công', 'backup.failed': 'Sao lưu lỗi', 'restore.staged': 'Xếp lịch khôi phục', 'restore.applied': 'Đã khôi phục'
+};
+function describeAudit(action) {
+    return AUDIT_LABELS[action] || action || '—';
+}
+
+function auditFilters() {
+    const params = { page: opsState.auditPage || 1, page_size: 50 };
+    [['username', '#audit-username'], ['action', '#audit-action'], ['from', '#audit-from'], ['to', '#audit-to']].forEach(([key, sel]) => {
+        const v = $(sel).val();
+        if (v) params[key] = v;
+    });
+    return params;
+}
+
+function loadAudit() {
+    return $.get('/api/v1/audit', auditFilters()).done(function (response) {
+        opsState.audit = response.data || [];
+        opsState.auditTotal = response.total || 0;
+        renderAudit();
+    }).fail(function () {
+        opsState.audit = [];
+        opsState.auditTotal = 0;
+        renderAudit();
+    });
+}
+
+function renderAudit() {
     const body = $('#ops-audit-body').empty();
-    if (!opsState.messages.length && !opsState.slotEvents.length) {
-        body.append($('<tr>').append($('<td>').attr('colspan', 5).append(opsElement('div', 'ops-empty', 'Chưa có sự kiện để hiển thị.'))));
-        return;
+    const rows = opsState.audit || [];
+    if (!rows.length) {
+        body.append($('<tr>').append($('<td>').attr('colspan', 5).append(opsElement('div', 'ops-empty', 'Chưa có hành động nào được ghi.'))));
     }
-    opsState.messages.slice(0, 50).forEach(message => {
+    rows.forEach(entry => {
         const row = $('<tr>');
-        row.append($('<td>').text(new Date(message.timestamp).toLocaleString('vi-VN')));
-        row.append($('<td>').text(message.type === 'sent' ? 'admin' : 'system'));
-        row.append($('<td>').text(message.type === 'sent' ? 'Gửi SMS' : 'Nhận SMS'));
-        row.append($('<td>').text(`${message.phone || 'Không rõ số'} · ${message.iccid || 'Không rõ SIM'}`));
-        row.append($('<td>').append(opsElement('span', `status-chip status-${message.type === 'sent' ? 'ready' : 'ok'}`, opsMessageStatus(message).label)));
+        row.append($('<td>').text(new Date(entry.at).toLocaleString('vi-VN')));
+        row.append($('<td>').text(entry.username || '—'));
+        row.append($('<td>').text(describeAudit(entry.action)).attr('title', entry.detail || ''));
+        row.append($('<td>').addClass('mono').text([entry.iccid, entry.target].filter(Boolean).join(' · ') || '—'));
+        const ok = entry.status < 400;
+        row.append($('<td>').append(opsElement('span', `status-chip status-${ok ? 'ok' : 'danger'}`, `${ok ? 'OK' : 'Lỗi'} ${entry.status}`)));
         body.append(row);
     });
-    opsState.slotEvents.slice(0, 20).forEach(event => {
-        const row = $('<tr>');
-        row.append($('<td>').text(new Date(event.detected_at).toLocaleString('vi-VN')));
-        row.append($('<td>').text('system'));
-        row.append($('<td>').text('Đổi khe'));
-        row.append($('<td>').text(`${event.iccid} · ${describeSlotEvent(event).path}`));
-        row.append($('<td>').append(opsElement('span', 'status-chip status-ok', event.event)));
-        body.append(row);
-    });
+    const page = opsState.auditPage || 1;
+    const pages = Math.max(1, Math.ceil((opsState.auditTotal || 0) / 50));
+    $('#audit-page-label').text(`Trang ${page}/${pages} · ${opsState.auditTotal || 0} dòng`);
+    $('#audit-prev').prop('disabled', page <= 1);
+    $('#audit-next').prop('disabled', page >= pages);
+}
+
+function auditCsv(rows) {
+    const quote = value => `"${String(value === undefined || value === null ? '' : value).replaceAll('"', '""')}"`;
+    const out = [['at', 'username', 'action', 'label', 'iccid', 'target', 'status', 'ip', 'detail']];
+    (rows || []).forEach(e => out.push([e.at, e.username, e.action, describeAudit(e.action), e.iccid, e.target, e.status, e.ip, e.detail]));
+    return out.map(r => r.map(quote).join(',')).join('\r\n');
 }
 
 function renderOperationsConsole() {
@@ -1051,7 +1093,6 @@ function renderOperationsConsole() {
     renderMaintenance();
     renderAlertCenter();
     renderReportPreview();
-    renderAuditPreview();
 }
 
 function loadOperationsData() {
@@ -1155,7 +1196,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
@@ -1180,6 +1221,19 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
     $('[data-open-view]').click(function () {
         const view = $(this).data('open-view');
         window.navigateApp(view);
+    });
+    $('#audit-username, #audit-action, #audit-from, #audit-to').on('change', function () { opsState.auditPage = 1; loadAudit(); });
+    $('#audit-prev').click(function () { opsState.auditPage = Math.max(1, (opsState.auditPage || 1) - 1); loadAudit(); });
+    $('#audit-next').click(function () { opsState.auditPage = (opsState.auditPage || 1) + 1; loadAudit(); });
+    $('#btn-export-audit').click(function () {
+        $.get('/api/v1/audit', Object.assign(auditFilters(), { page: 1, page_size: 500 })).done(function (response) {
+            const url = URL.createObjectURL(new Blob(['﻿', auditCsv(response.data)], { type: 'text/csv;charset=utf-8' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `smsie-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+        });
     });
     $('#btn-refresh-ops').click(loadOperationsData);
     $('#btn-balance-run').click(function () {
@@ -1246,10 +1300,8 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             loadSlotEvents(route.iccid);
         }
         if (route.view === 'audit') {
-            $.get('/api/v1/slot-events', { page_size: 200 }).done(function (response) {
-                opsState.slotEvents = response.data || [];
-                renderAuditPreview();
-            });
+            opsState.auditPage = 1;
+            loadAudit();
         }
     });
     if (auth.username && ['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(window.currentAppRoute().view)) {

@@ -212,3 +212,18 @@ type KeepaliveRun struct {
 	Reason      string    `gorm:"size:255" json:"reason,omitempty"`
 	RanAt       time.Time `gorm:"index" json:"ran_at"`
 }
+
+// AuditLog — nhật ký hành động thật: ai (user / apikey:<name> / system) làm gì, với SIM nào, kết quả ra sao.
+type AuditLog struct {
+	ID       uint      `gorm:"primaryKey" json:"id"`
+	At       time.Time `gorm:"index" json:"at"`
+	Username string    `gorm:"size:80;index" json:"username"`
+	UserID   *uint     `json:"user_id,omitempty"`
+	APIKeyID *uint     `json:"api_key_id,omitempty"`
+	Action   string    `gorm:"size:64;index" json:"action"`
+	ICCID    string    `gorm:"column:iccid;size:32;index" json:"iccid,omitempty"`
+	Target   string    `gorm:"size:64" json:"target,omitempty"`
+	Detail   string    `gorm:"size:1024" json:"detail,omitempty"`
+	Status   int       `json:"status"`
+	IP       string    `gorm:"size:64" json:"ip,omitempty"`
+}

@@ -632,13 +632,59 @@
                 <h1>Nhật ký và phân quyền</h1>
                 <p>Ai thao tác, dùng SIM nào, kết quả ra sao.</p>
               </div>
-              <div class="preview-badge">Preview dữ liệu hiện có</div>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-export-audit"><i class="bi bi-download"></i> Tải CSV</button>
             </header>
-            <div class="ops-panel table-responsive">
-              <table class="table ops-table align-middle mb-0">
-                <thead><tr><th>Thời gian</th><th>Người dùng</th><th>Hành động</th><th>Đối tượng</th><th>Kết quả</th></tr></thead>
-                <tbody id="ops-audit-body"></tbody>
-              </table>
+            <div class="ops-panel">
+              <div class="ops-panel-head">
+                <h2>Nhật ký hành động</h2>
+                <div class="slot-history-filters">
+                  <input type="text" id="audit-username" class="form-control form-control-sm" placeholder="Người dùng" aria-label="Người dùng" />
+                  <select id="audit-action" class="form-select form-select-sm" aria-label="Hành động">
+                    <option value="">Mọi hành động</option>
+                    <option value="sms.send">Gửi SMS</option>
+                    <option value="call.dial">Gọi đi</option>
+                    <option value="call.hangup">Ngắt cuộc gọi</option>
+                    <option value="at.exec">Lệnh AT</option>
+                    <option value="balance.check">Đọc số dư</option>
+                    <option value="balance.run">Đọc số dư toàn bộ</option>
+                    <option value="phone.lookup">Đọc số thuê bao</option>
+                    <option value="modem.reboot">Khởi động lại modem</option>
+                    <option value="modem.profile">Sửa hồ sơ SIM</option>
+                    <option value="bay.assign">Gán khe</option>
+                    <option value="keepalive.run">Nuôi SIM (tay)</option>
+                    <option value="keepalive.send">Nuôi SIM (tự động)</option>
+                    <option value="user.create">Tạo người dùng</option>
+                    <option value="user.delete">Xoá người dùng</option>
+                    <option value="user.permissions">Đổi quyền người dùng</option>
+                    <option value="apikey.create">Tạo API key</option>
+                    <option value="apikey.rotate">Xoay API key</option>
+                    <option value="apikey.delete">Xoá API key</option>
+                    <option value="webhook.create">Tạo webhook</option>
+                    <option value="webhook.delete">Xoá webhook</option>
+                    <option value="auth.password">Đổi mật khẩu</option>
+                    <option value="backup.ok">Sao lưu thành công</option>
+                    <option value="backup.failed">Sao lưu lỗi</option>
+                    <option value="restore.staged">Xếp lịch khôi phục</option>
+                    <option value="restore.applied">Đã khôi phục</option>
+                  </select>
+                  <input type="date" id="audit-from" class="form-control form-control-sm" aria-label="Từ ngày" />
+                  <span class="text-muted">→</span>
+                  <input type="date" id="audit-to" class="form-control form-control-sm" aria-label="Đến ngày" />
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="table ops-table align-middle mb-0">
+                  <thead><tr><th>Thời gian</th><th>Người dùng</th><th>Hành động</th><th>Đối tượng</th><th>Kết quả</th></tr></thead>
+                  <tbody id="ops-audit-body"></tbody>
+                </table>
+              </div>
+              <div class="d-flex justify-content-between align-items-center mt-2">
+                <span class="ops-list-note" id="audit-page-label"></span>
+                <div class="d-flex gap-1">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="audit-prev">‹ Trước</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="audit-next">Sau ›</button>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -1083,7 +1129,7 @@
     <script src="/static/js/router.js?v=20260911-calls"></script>
     <script src="/static/js/app.js?v=20260911-calls-v4"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20260916-phone"></script>
+    <script src="/static/js/operations-console.js?v=20260916-audit"></script>
   </body>
 </html>
 

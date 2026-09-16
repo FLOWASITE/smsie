@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -148,4 +148,19 @@ test('describePhoneLookup: chưa bấm → Đọc số; đang đọc → busy; x
     assert.equal(describePhoneLookup({ state: 'timeout' }).tone, 'warning');
     assert.deepEqual(describePhoneLookup({ state: 'error', message: 'modem offline' }), { label: 'modem offline', tone: 'danger', busy: false });
     assert.equal(describePhoneLookup({ state: 'error' }).label, 'Không gửi được yêu cầu đọc số');
+});
+
+test('describeAudit: nhãn Việt cho mã hành động, mã lạ trả nguyên', () => {
+    assert.equal(describeAudit('sms.send'), 'Gửi SMS');
+    assert.equal(describeAudit('keepalive.send'), 'Nuôi SIM (tự động)');
+    assert.equal(describeAudit('auth.password'), 'Đổi mật khẩu');
+    assert.equal(describeAudit('POST /api/v1/modems/:iccid/scan'), 'POST /api/v1/modems/:iccid/scan');
+    assert.equal(describeAudit(undefined), '—');
+});
+
+test('auditCsv: tiêu đề + nhãn Việt + escape dấu nháy', () => {
+    const csv = auditCsv([{ at: '2026-09-16T10:00:00Z', username: 'alice', action: 'sms.send', iccid: '89', target: '0912', status: 200, ip: '::1', detail: '{"message":"a \"b\""}' }]);
+    const lines = csv.split('\r\n');
+    assert.equal(lines[0], '"at","username","action","label","iccid","target","status","ip","detail"');
+    assert.equal(lines[1], '"2026-09-16T10:00:00Z","alice","sms.send","Gửi SMS","89","0912","200","::1","{""message"":""a ""b""""}"');
 });
