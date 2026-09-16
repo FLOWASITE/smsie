@@ -110,3 +110,34 @@ type Webhook struct {
 	Enabled   bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// ModemBay là một khe vật lý trong khay: khe = modem (IMEI) cố định, SIM (ICCID) đi qua khe.
+type ModemBay struct {
+	IMEI         string     `gorm:"primaryKey;column:imei;size:32" json:"imei"`
+	SlotNumber   *int       `gorm:"column:slot_number;uniqueIndex" json:"slot_number,omitempty"` // NULL = modem đã thấy nhưng chưa gán khe
+	CurrentICCID string     `gorm:"column:current_iccid;size:32;index" json:"current_iccid,omitempty"` // "" = khe trống
+	LastSeenAt   *time.Time `gorm:"column:last_seen_at" json:"last_seen_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+const (
+	SlotEventInserted = "inserted"
+	SlotEventMoved    = "moved"
+	SlotEventRemoved  = "removed"
+)
+
+// SimSlotEvent là lịch sử append-only: SIM nào vào/rời/đổi khe lúc nào, số dư bao nhiêu.
+type SimSlotEvent struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	DetectedAt  time.Time `gorm:"index" json:"detected_at"`
+	ICCID       string    `gorm:"column:iccid;size:32;index" json:"iccid"`
+	IMEI        string    `gorm:"column:imei;size:32" json:"imei"`
+	PhoneNumber string    `gorm:"size:20" json:"phone_number,omitempty"`
+	Operator    string    `gorm:"size:64" json:"operator,omitempty"`
+	Event       string    `gorm:"size:16;index" json:"event"`
+	FromSlot    *int      `gorm:"column:from_slot" json:"from_slot,omitempty"`
+	ToSlot      *int      `gorm:"column:to_slot" json:"to_slot,omitempty"`
+	BalanceVND  *int64    `gorm:"column:balance_vnd" json:"balance_vnd,omitempty"`
+	PortName    string    `gorm:"size:32" json:"port_name,omitempty"`
+}
