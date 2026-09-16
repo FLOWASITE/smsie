@@ -399,6 +399,12 @@ func (w *ModemWorker) initModem() {
 			iccid = strings.TrimRight(strings.ToUpper(iccid), "F")
 		}
 
+		if iccid == "" && err != nil && !isSIMNotInserted(err) {
+			// QCCID trả +CME ERROR: 13 (SIM failure) khi khay trống trên EC20; hỏi CPIN để phân loại chắc chắn.
+			if _, pinErr := w.ExecuteATSilent("AT+CPIN?", 3*time.Second); pinErr != nil && isSIMNotInserted(pinErr) {
+				err = pinErr
+			}
+		}
 		if iccid == "" {
 			if isSIMNotInserted(err) {
 				logger.Log.Debugf("[%s] No SIM inserted (IMEI %s)", w.PortName, imei)
