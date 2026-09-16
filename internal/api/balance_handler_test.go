@@ -97,4 +97,5 @@ func TestBalanceAlertsAndRunNowAdminOnly(t *testing.T) {
 	if rec := balanceGet(h.RunNow, "/api/v1/balance/run", &model.User{Role: "admin"}); rec.Code != http.StatusAccepted || rec.Body.String() != `{"requested":0}` {
 		t.Fatalf("run admin status %d: %s", rec.Code, rec.Body.String())
 	}
+	time.Sleep(50 * time.Millisecond) // để goroutine Evaluate (evalDelay=0) xong trước khi DB in-memory đóng
 }

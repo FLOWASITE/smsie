@@ -76,17 +76,18 @@ func (h *BalanceHandler) Alerts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": alerts, "total": total, "page": page, "page_size": size})
 }
 
-// RunNow: đọc *101# đồng bộ, đánh giá nền sau evalDelay.
+// RunNow: trả 202 ngay với số SIM đủ điều kiện; gửi *101# rồi đánh giá chạy nền.
 func (h *BalanceHandler) RunNow(c *gin.Context) {
 	if !h.admin(c) {
 		return
 	}
-	n := h.sched.ReadAll()
+	ws := h.sched.Eligible()
 	go func() {
+		h.sched.Request(ws, nil)
 		time.Sleep(h.evalDelay)
 		h.sched.Evaluate()
 	}()
-	c.JSON(http.StatusAccepted, gin.H{"requested": n})
+	c.JSON(http.StatusAccepted, gin.H{"requested": len(ws)})
 }
 
 func (h *BalanceHandler) admin(c *gin.Context) bool {

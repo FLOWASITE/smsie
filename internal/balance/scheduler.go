@@ -22,7 +22,8 @@ type Scheduler struct {
 	webhooks *logic.WebhookService
 	cfg      config.BalanceConfig
 	repo     *repository.BalanceRepository
-	runMu    sync.Mutex
+	runMu    sync.Mutex // Request: một lượt *101# tuần tự tại một thời điểm
+	evalMu   sync.Mutex // Evaluate: daily và RunNow không chèn alert trùng
 }
 
 func NewScheduler(db *gorm.DB, wm *worker.Manager, webhooks *logic.WebhookService, cfg config.BalanceConfig) *Scheduler {
@@ -48,7 +49,7 @@ func (s *Scheduler) Run(stop <-chan struct{}) {
 	initial := time.NewTimer(2 * time.Minute)
 	defer initial.Stop()
 	for {
-		daily := time.NewTimer(time.Until(s.nextCheck(time.Now())))
+		daily := time.NewTimer(time.Until(nextCheck(time.Now(), s.cfg.CheckHour)))
 		select {
 		case <-stop:
 			daily.Stop()
@@ -60,7 +61,7 @@ func (s *Scheduler) Run(stop <-chan struct{}) {
 		case <-daily.C:
 		}
 		if s.cfg.Enabled {
-			n := s.ReadAll()
+			n := s.ReadAll(stop)
 			logger.Log.Infof("balance: đã yêu cầu đọc số dư %d SIM", n)
 			after := time.NewTimer(15 * time.Minute)
 			select {
@@ -74,8 +75,8 @@ func (s *Scheduler) Run(stop <-chan struct{}) {
 	}
 }
 
-func (s *Scheduler) nextCheck(now time.Time) time.Time {
-	t := time.Date(now.Year(), now.Month(), now.Day(), s.cfg.CheckHour, 0, 0, 0, now.Location())
+func nextCheck(now time.Time, hour int) time.Time {
+	t := time.Date(now.Year(), now.Month(), now.Day(), hour, 0, 0, 0, now.Location())
 	if !t.After(now) {
 		t = t.AddDate(0, 0, 1)
 	}
@@ -90,12 +91,13 @@ func (s *Scheduler) evaluateLogged() {
 
 func registered(reg string) bool { return reg == "Home Network" || reg == "Roaming" }
 
-// ReadAll yêu cầu đọc *101# trên mọi SIM online, đã đăng ký mạng và chưa đọc trong 20h. Trả số SIM đã yêu cầu.
-func (s *Scheduler) ReadAll() int {
-	s.runMu.Lock()
-	defer s.runMu.Unlock()
+// ReadAll = Request(Eligible(), stop): yêu cầu đọc *101# tuần tự, 3s giữa các SIM. Trả số SIM đã yêu cầu.
+func (s *Scheduler) ReadAll(stop <-chan struct{}) int { return s.Request(s.Eligible(), stop) }
+
+// Eligible liệt kê SIM online, đã đăng ký mạng và chưa đọc số dư trong 20h — không ngủ, không khoá.
+func (s *Scheduler) Eligible() []*worker.ModemWorker {
 	cutoff := time.Now().Add(-20 * time.Hour)
-	n := 0
+	var out []*worker.ModemWorker
 	for _, w := range s.wm.ActiveWorkers() {
 		rt, ok := w.RuntimeModemState()
 		if !ok || rt.Status != "online" || !registered(rt.Registration) {
@@ -105,11 +107,29 @@ func (s *Scheduler) ReadAll() int {
 		if err := s.db.Select("balance_updated_at").First(&m, "iccid = ?", rt.ICCID).Error; err == nil && m.BalanceUpdatedAt != nil && m.BalanceUpdatedAt.After(cutoff) {
 			continue
 		}
-		if n > 0 {
-			time.Sleep(3 * time.Second)
+		out = append(out, w)
+	}
+	return out
+}
+
+// Request gửi *101# cho từng worker, cách nhau 3s; stop=nil = không huỷ. Trả số SIM thực sự đã yêu cầu.
+func (s *Scheduler) Request(ws []*worker.ModemWorker, stop <-chan struct{}) int {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	n := 0
+	for i, w := range ws {
+		if i > 0 {
+			select {
+			case <-stop:
+				return n
+			case <-time.After(3 * time.Second):
+			}
 		}
-		if err := w.RequestBalance(); err != nil && !errors.Is(err, worker.ErrBalanceCheckInProgress) {
-			logger.Log.Warnf("balance: yêu cầu đọc số dư %s lỗi: %v", rt.ICCID, err)
+		if err := w.RequestBalance(); err != nil {
+			if !errors.Is(err, worker.ErrBalanceCheckInProgress) {
+				rt, _ := w.RuntimeModemState()
+				logger.Log.Warnf("balance: yêu cầu đọc số dư %s lỗi: %v", rt.ICCID, err)
+			}
 			continue
 		}
 		n++
@@ -118,7 +138,11 @@ func (s *Scheduler) ReadAll() int {
 }
 
 // Evaluate đánh giá mọi SIM, ghi alert + bắn webhook cho low/forecast chưa cảnh báo trong 24h.
-func (s *Scheduler) Evaluate() ([]StatusItem, error) { return s.collect(true) }
+func (s *Scheduler) Evaluate() ([]StatusItem, error) {
+	s.evalMu.Lock()
+	defer s.evalMu.Unlock()
+	return s.collect(true)
+}
 
 // Status như Evaluate nhưng không ghi gì.
 func (s *Scheduler) Status() ([]StatusItem, error) { return s.collect(false) }
@@ -151,6 +175,9 @@ func (s *Scheduler) collect(write bool) ([]StatusItem, error) {
 			continue
 		}
 		if done, err := s.repo.AlertedWithin(m.ICCID, 24*time.Hour); err != nil || done {
+			if err != nil {
+				logger.Log.Errorf("balance: kiểm alert %s lỗi: %v", m.ICCID, err)
+			}
 			continue
 		}
 		if err := s.repo.AddAlert(&model.BalanceAlert{ICCID: m.ICCID, Kind: r.Level, BalanceVND: m.BalanceVND, DaysLeft: r.DaysLeft, SentAt: time.Now()}); err != nil {
