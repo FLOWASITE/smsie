@@ -1,13 +1,13 @@
 const opsState = {
     modems: [],
     messages: [],
-    previewMappings: {},
+    bays: [],
+    slotEvents: [],
+    slotTab: 'tray',
     phoneNumbers: {},
     balanceChecks: {},
     loadedAt: null
 };
-
-const OPS_PROFILE_STORAGE_KEY = 'smsie_ops_profiles_v1';
 
 function groupOpsMessages(messages) {
     const byPhone = new Map();
@@ -32,24 +32,6 @@ function describeOpsMessageRoute(message, modems, mappings, phoneNumbers) {
     if (modem.port_name) identity.push(modem.port_name);
     if (!identity.length && message.iccid) identity.push(message.iccid);
     return `${message.type === 'sent' ? 'Gửi từ' : 'Nhận tại'} ${identity.join(' · ')}`;
-}
-
-function loadOpsProfiles() {
-    try {
-        const stored = JSON.parse(localStorage.getItem(OPS_PROFILE_STORAGE_KEY) || '{}');
-        opsState.previewMappings = stored.mappings || {};
-        opsState.phoneNumbers = stored.phoneNumbers || {};
-    } catch (_) {
-        opsState.previewMappings = {};
-        opsState.phoneNumbers = {};
-    }
-}
-
-function saveOpsProfiles() {
-    localStorage.setItem(OPS_PROFILE_STORAGE_KEY, JSON.stringify({
-        mappings: opsState.previewMappings,
-        phoneNumbers: opsState.phoneNumbers
-    }));
 }
 
 function summarizeOpsData(modems, messages) {
@@ -95,14 +77,6 @@ function opsIsOnline(modem) {
     return modem && String(modem.status || '').toLowerCase() === 'online';
 }
 
-function opsSignalLabel(signal) {
-    const value = Number(signal || 0);
-    if (value >= 70) return 'Tốt';
-    if (value >= 40) return 'Trung bình';
-    if (value > 0) return 'Yếu';
-    return 'Không có';
-}
-
 function opsMoney(value) {
     return `${Number(value || 0).toLocaleString('vi-VN')} đ`;
 }
@@ -111,26 +85,19 @@ function opsBalanceLabel(modem) {
     return modem && modem.balance_updated_at ? opsMoney(modem.balance_vnd) : 'Chưa kiểm tra';
 }
 
-function saveModemProfile(iccid, profile) {
-    return $.ajax({
-        url: `/api/v1/modems/${encodeURIComponent(iccid)}/profile`,
-        method: 'PATCH',
-        contentType: 'application/json',
-        data: JSON.stringify(profile)
-    });
+function opsSlotByICCID() {
+    const map = {};
+    opsState.bays.forEach(bay => { if (bay.current_iccid && bay.slot_number) map[bay.current_iccid] = bay.slot_number; });
+    return map;
 }
 
-function opsMappedModems() {
-    return opsState.modems.filter(modem => opsState.previewMappings[modem.iccid]);
-}
-
-function opsUnassignedModems() {
-    return opsState.modems.filter(modem => !opsState.previewMappings[modem.iccid]);
+function assignBaySlot(imei, slot) {
+    return $.ajax({ url: `/api/v1/bays/${encodeURIComponent(imei)}`, method: 'PATCH', contentType: 'application/json', data: JSON.stringify({ slot_number: slot }) });
 }
 
 function opsAlerts() {
     const alerts = [];
-    const unassigned = opsUnassignedModems();
+    const unassigned = buildTrayCells(opsState.bays, Date.now()).unassigned;
     if (unassigned.length) {
         alerts.push({
             level: 'warning',
@@ -161,7 +128,7 @@ function opsAlerts() {
 
 function renderOpsKPIs() {
     const online = opsState.modems.filter(opsIsOnline).length;
-    const mapped = opsMappedModems().length;
+    const mapped = Object.keys(opsSlotByICCID()).length;
     const unread = opsState.messages.filter(message => message.type === 'received' && !message.is_read).length;
     const cards = [
         { label: 'Modem trực tuyến', value: `${online}/32`, note: `${32 - mapped} khe chưa có mapping`, icon: 'bi-router', tone: 'mint' },
@@ -208,23 +175,12 @@ function renderSimRails() {
 }
 
 function renderMiniSlots() {
-    const mappedSlots = new Set(Object.values(opsState.previewMappings).map(Number));
+    const { cells } = buildTrayCells(opsState.bays, Date.now());
     const grid = $('#ops-mini-slots').empty();
-    for (let slot = 1; slot <= 32; slot += 1) {
-        const item = opsElement('div', `mini-slot${mappedSlots.has(slot) ? ' is-online' : ''}`, String(slot).padStart(2, '0'));
-        item.attr('title', mappedSlots.has(slot) ? `Khe ${slot}: đã gán` : `Khe ${slot}: chưa gán`);
+    cells.forEach(cell => {
+        const item = opsElement('div', `mini-slot tone-${cell.tone}${cell.swapped ? ' is-swapped' : ''}`, String(cell.slot).padStart(2, '0'));
+        item.attr('title', cell.bay ? `Khe ${cell.slot}: ${cell.bay.phone_number || cell.bay.current_iccid || 'không có SIM'}` : `Khe ${cell.slot}: chưa gán modem`);
         grid.append(item);
-    }
-
-    const strip = $('#ops-unassigned').empty();
-    const unassigned = opsUnassignedModems();
-    if (!unassigned.length) {
-        strip.append(opsElement('div', 'ops-list-note', 'Tất cả modem đã được gán khe trong bản preview.'));
-        return;
-    }
-    strip.append(opsElement('div', 'ops-list-title', 'Thiết bị trực tuyến chưa gán'));
-    unassigned.forEach(modem => {
-        strip.append(opsElement('div', 'ops-list-note', `${modem.port_name || 'Chưa rõ COM'} · ${modem.iccid} · sóng ${modem.signal_strength || 0}%`));
     });
 }
 
@@ -303,7 +259,7 @@ function renderConversationThread(thread, container) {
         const outgoing = message.type === 'sent';
         const bubble = opsElement('article', `message-bubble ${outgoing ? 'is-outgoing' : 'is-incoming'}`);
         bubble.append(opsElement('div', 'message-copy', message.content || 'Không có nội dung'));
-        bubble.append(opsElement('div', 'message-route', describeOpsMessageRoute(message, opsState.modems, opsState.previewMappings, opsState.phoneNumbers)));
+        bubble.append(opsElement('div', 'message-route', describeOpsMessageRoute(message, opsState.modems, opsSlotByICCID(), opsState.phoneNumbers)));
         const meta = opsElement('div', 'message-meta');
         const status = opsMessageStatus(message);
         meta.append(opsElement('span', `message-status status-${status.className}`, status.label));
@@ -376,98 +332,101 @@ if (typeof window !== 'undefined') {
 
 function renderLiveUnassigned() {
     const container = $('#ops-live-unassigned').empty();
+    const { cells, unassigned } = buildTrayCells(opsState.bays, Date.now());
     const header = opsElement('div', 'ops-panel-head');
     const heading = opsElement('div');
-    heading.append(opsElement('div', 'eyebrow', 'Thiết bị phát hiện qua USB'));
-    heading.append(opsElement('h2', '', 'Chưa gán khe vật lý'));
+    heading.append(opsElement('div', 'eyebrow', 'Modem phát hiện qua USB'));
+    heading.append(opsElement('h2', '', 'Chưa gán khe'));
     header.append(heading);
     container.append(header);
 
-    const unassigned = opsUnassignedModems();
     if (!unassigned.length) {
-        container.append(opsElement('div', 'ops-empty', 'Không còn thiết bị chờ gán.'));
+        container.append(opsElement('div', 'ops-empty', 'Không còn modem chờ gán khe.'));
         return;
     }
-    unassigned.forEach(modem => {
+    const freeSlots = cells.filter(cell => !cell.bay);
+    unassigned.forEach(bay => {
         const row = opsElement('div', 'unassigned-device');
         const identity = opsElement('div');
-        identity.append(opsElement('strong', '', modem.port_name || 'COM chưa rõ'));
-        identity.append(opsElement('div', 'ops-list-note', `${modem.iccid} · IMEI ${modem.imei || 'chưa đọc được'}`));
+        identity.append(opsElement('strong', '', bay.port_name || 'COM chưa rõ'));
+        identity.append(opsElement('div', 'ops-list-note', [`IMEI …${String(bay.imei).slice(-4)}`, bay.phone_number || bay.current_iccid || 'không có SIM'].join(' · ')));
         row.append(identity);
 
-        const select = $('<select>').addClass('form-select form-select-sm preview-slot-select').attr('aria-label', `Chọn khe cho ${modem.port_name || modem.iccid}`);
+        const select = $('<select>').addClass('form-select form-select-sm').attr('aria-label', `Chọn khe cho ${bay.port_name || bay.imei}`);
         select.append($('<option>').val('').text('Chọn khe…'));
-        for (let slot = 1; slot <= 32; slot += 1) {
-            select.append($('<option>').val(slot).text(`Khe ${String(slot).padStart(2, '0')}`));
-        }
-        const phoneInput = $('<input>').addClass('form-control form-control-sm preview-phone-input').attr({
-            type: 'tel',
-            inputmode: 'tel',
-            placeholder: 'Số điện thoại',
-            'aria-label': `Số điện thoại của ${modem.port_name || modem.iccid}`
-        }).val(opsState.phoneNumbers[modem.iccid] || '');
-        const button = opsElement('button', 'btn btn-sm btn-dark', 'Gán thử');
+        freeSlots.forEach(cell => select.append($('<option>').val(cell.slot).text(`Khe ${String(cell.slot).padStart(2, '0')}`)));
+        const button = opsElement('button', 'btn btn-sm btn-dark', 'Gán khe');
         button.attr('type', 'button').click(function () {
             const slot = Number(select.val());
             if (!slot) return;
-            const phone = String(phoneInput.val() || '').trim();
             button.prop('disabled', true).text('Đang lưu…');
-            saveModemProfile(modem.iccid, { slot_number: slot, phone_number: phone })
-                .done(function (saved) {
-                    modem.slot_number = saved.slot_number;
-                    modem.phone_number = saved.phone_number;
-                    opsState.previewMappings[modem.iccid] = slot;
-                    opsState.phoneNumbers[modem.iccid] = phone;
-                    saveOpsProfiles();
-                    renderOperationsConsole();
-                    if (!$('#view-sms').hasClass('d-none')) loadSMS(currentSMSPage);
-                })
+            assignBaySlot(bay.imei, slot)
+                .done(loadOperationsData)
                 .fail(function (xhr) {
-                    button.prop('disabled', false).text('Gán thử');
-                    const message = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được hồ sơ';
-                    phoneInput.addClass('is-invalid').attr('title', message);
+                    button.prop('disabled', false).text('Gán khe');
+                    const message = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gán được khe';
+                    select.addClass('is-invalid').attr('title', message);
                 });
         });
-        row.append(opsElement('div', 'unassigned-actions').append(phoneInput, select, button));
+        row.append(opsElement('div', 'unassigned-actions').append(select, button));
         container.append(row);
     });
 }
 
-function renderSlotGrid() {
-    const bySlot = {};
-    opsState.modems.forEach(modem => {
-        const slot = opsState.previewMappings[modem.iccid];
-        if (slot) bySlot[slot] = modem;
-    });
-    const grid = $('#ops-slot-grid').empty();
-    for (let slot = 1; slot <= 32; slot += 1) {
-        const modem = bySlot[slot];
-        const card = opsElement('article', `slot-card${modem ? ' has-modem' : ''}`);
-        const top = opsElement('div', 'd-flex justify-content-between align-items-center');
-        top.append(opsElement('span', 'slot-number', `KHE ${String(slot).padStart(2, '0')}`));
-        if (modem) top.append(opsElement('span', 'health-dot is-online', 'Online'));
-        card.append(top);
-        card.append(opsElement('div', 'slot-state', modem ? (opsState.phoneNumbers[modem.iccid] || modem.name || modem.port_name || modem.iccid) : 'Chưa gán SIM'));
-        card.append(opsElement('div', 'slot-meta', modem ? `${modem.port_name} · ${opsSignalLabel(modem.signal_strength)} ${modem.signal_strength || 0}%` : 'Sẵn sàng nhận mapping'));
-        if (modem) card.append(opsElement('div', 'slot-meta mono', `ICCID ${modem.iccid} · IMEI ${modem.imei || '—'}`));
-        if (modem) card.append(opsElement('div', 'slot-meta', `Số dư ${opsBalanceLabel(modem)}${modem.balance_updated_at ? ` · ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : ''}`));
-        if (modem && modem.hardware_path) card.append(opsElement('div', 'slot-meta hardware-path', modem.hardware_path));
-        if (modem) {
-            card.attr({ role: 'link', tabindex: '0' })
-                .click(() => window.navigateApp('slots', modem.iccid))
-                .on('keydown', event => { if (event.key === 'Enter') window.navigateApp('slots', modem.iccid); });
-            const reset = opsElement('button', 'text-action mt-2', 'Bỏ mapping preview');
-            reset.attr('type', 'button').click(function (event) {
-                event.stopPropagation();
-                delete opsState.previewMappings[modem.iccid];
-                saveOpsProfiles();
-                renderOperationsConsole();
-            });
-            card.append(reset);
-        }
-        grid.append(card);
+function bayCard(cell) {
+    const bay = cell.bay;
+    const card = opsElement('button', `bay ${cell.tone}${cell.swapped ? ' swapped' : ''}`);
+    card.attr({ type: 'button', 'aria-label': `Khe ${cell.slot}` });
+    const body = opsElement('div');
+    body.append(opsElement('div', 'num', `Khe ${String(cell.slot).padStart(2, '0')}`));
+    if (!bay) {
+        body.append(opsElement('div', 'phone', 'Chưa gán modem'));
+    } else if (!bay.current_iccid) {
+        body.append(opsElement('div', 'phone', 'Không có SIM'));
+        body.append(opsElement('div', 'op', bay.port_name || `IMEI …${bay.imei.slice(-4)}`));
+    } else {
+        body.append(opsElement('div', 'phone', bay.phone_number || bay.current_iccid));
+        body.append(opsElement('div', 'op', [bay.operator, bay.port_name].filter(Boolean).join(' · ') || '—'));
+        body.append(opsElement('div', `bal${bay.balance_vnd < 20000 ? ' low' : ''}`, opsMoney(bay.balance_vnd)));
     }
+    card.append(opsElement('span', 'chip'), body, opsElement('span', 'dot'));
+    if (cell.swapped) card.append(opsElement('span', 'swap', '↔ 24h'));
+    if (bay) card.click(() => showTrayPop(cell, card));
+    return card;
 }
+
+function showTrayPop(cell, card) {
+    const bay = cell.bay;
+    const pop = $('#ops-tray-pop').empty();
+    const panel = card.closest('.ops-panel');
+    const r = card[0].getBoundingClientRect();
+    const p = panel[0].getBoundingClientRect();
+    pop.css({ left: Math.min(r.left - p.left, p.width - 280) + 'px', top: (r.bottom - p.top + 6) + 'px' });
+    pop.append(opsElement('b', '', `Khe ${cell.slot}${bay.phone_number ? ' · ' + bay.phone_number : ''}`));
+    const dl = $('<dl>');
+    const rows = bay.current_iccid
+        ? [['ICCID', bay.current_iccid], ['IMEI', bay.imei], ['Nhà mạng', bay.operator || '—'], ['Số dư', opsMoney(bay.balance_vnd)], ['Ở khe từ', bay.last_event_at ? new Date(bay.last_event_at).toLocaleString('vi-VN') : '—']]
+        : [['IMEI', bay.imei], ['Cổng', bay.port_name || '—']];
+    rows.forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
+    pop.append(dl);
+    if (bay.current_iccid) {
+        const link = opsElement('a', 'text-action', 'Xem lịch sử khe →').attr('href', '#');
+        link.click(event => { event.preventDefault(); openSlotHistory(bay.current_iccid); });
+        pop.append(opsElement('div', 'mt-2').append(link));
+    }
+    pop.prop('hidden', false);
+}
+
+function renderTray() {
+    const { cells } = buildTrayCells(opsState.bays, Date.now());
+    const tray = $('#ops-tray').empty();
+    cells.forEach(cell => tray.append(bayCard(cell)));
+}
+
+// Task 8 điền: tab Lịch sử khe + Hiệu chuẩn.
+function renderBayCalibration() {}
+function renderSlotHistory() {}
+function openSlotHistory() {}
 
 function balanceNeedsRefresh(modem) {
     if (!modem.balance_updated_at) return true;
@@ -520,7 +479,8 @@ function requestBalanceCheck(modem) {
 }
 
 function renderMaintenancePreview() {
-    const mapped = opsMappedModems();
+    const slots = opsSlotByICCID();
+    const mapped = opsState.modems.filter(modem => slots[modem.iccid]);
     const route = window.currentAppRoute ? window.currentAppRoute() : { view: 'maintenance', iccid: '' };
     const summary = [
         { label: 'Lịch đang bật', value: '0', note: 'Khóa trong giai đoạn preview', icon: 'bi-calendar2-check', tone: 'mint' },
@@ -546,7 +506,7 @@ function renderMaintenancePreview() {
         return;
     }
     opsState.modems.forEach(modem => {
-        const slot = opsState.previewMappings[modem.iccid];
+        const slot = slots[modem.iccid];
         const selected = route.iccid === modem.iccid;
         const card = opsElement('article', `schedule-card${selected ? ' is-selected' : ''}`);
         card.attr({ role: 'link', tabindex: '0' })
@@ -672,7 +632,9 @@ function renderOperationsConsole() {
     renderOpsAlertSummary();
     renderRecentMessages();
     renderLiveUnassigned();
-    renderSlotGrid();
+    renderTray();
+    renderBayCalibration();
+    renderSlotHistory();
     renderMaintenancePreview();
     renderAlertCenter();
     renderReportPreview();
@@ -683,12 +645,13 @@ function loadOperationsData() {
     $('#btn-refresh-ops').prop('disabled', true);
     $.when(
         $.get('/api/v1/modems'),
-        $.get('/api/v1/sms', { page: 1, limit: 200 })
-    ).done(function (modemResponse, smsResponse) {
+        $.get('/api/v1/sms', { page: 1, limit: 200 }),
+        $.get('/api/v1/bays')
+    ).done(function (modemResponse, smsResponse, bayResponse) {
         opsState.modems = modemResponse[0] || [];
         opsState.messages = (smsResponse[0] && smsResponse[0].data) || [];
+        opsState.bays = bayResponse[0] || [];
         opsState.modems.forEach(modem => {
-            if (modem.slot_number) opsState.previewMappings[modem.iccid] = modem.slot_number;
             if (modem.phone_number) opsState.phoneNumbers[modem.iccid] = modem.phone_number;
         });
         opsState.loadedAt = new Date();
@@ -777,7 +740,13 @@ if (typeof module !== 'undefined') {
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
-    loadOpsProfiles();
+    $(document).on('click', e => { if (!$(e.target).closest('.bay, #ops-tray-pop').length) $('#ops-tray-pop').prop('hidden', true); });
+    $('.ops-tab').click(function () {
+        opsState.slotTab = $(this).data('slot-tab');
+        $('.ops-tab').removeClass('is-active').filter(this).addClass('is-active');
+        $('.slot-tab').addClass('d-none');
+        $(`#slot-tab-${opsState.slotTab}`).removeClass('d-none');
+    });
     $('[data-open-view]').click(function () {
         const view = $(this).data('open-view');
         window.navigateApp(view);

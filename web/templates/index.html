@@ -377,7 +377,6 @@
                   <button class="text-action" data-open-view="slots">Xem 32 khe <i class="bi bi-arrow-right"></i></button>
                 </div>
                 <div id="ops-mini-slots" class="mini-slot-grid" aria-label="Tóm tắt 32 khe SIM"></div>
-                <div id="ops-unassigned" class="unassigned-strip"></div>
               </section>
 
               <aside class="ops-panel ops-attention-panel">
@@ -406,15 +405,62 @@
           <section id="view-slots" class="view-section ops-view d-none">
             <header class="ops-page-head">
               <div>
-                <div class="eyebrow">Khe vật lý ↔ cổng COM ↔ SIM</div>
-                <h1>Bản đồ 32 khe SIM</h1>
-                <p>Gán đúng khe trước khi bật lịch duy trì hoặc gửi tin.</p>
+                <div class="eyebrow">Khe = modem · SIM đi qua khe</div>
+                <h1>Khe SIM</h1>
+                <p>Khay 32 modem EC20. Số khe nhận diện bằng IMEI của modem, lịch sử ghi mỗi lần SIM đổi khe.</p>
               </div>
-              <div class="preview-badge">Preview · chưa lưu mapping</div>
+              <div class="ops-head-actions">
+                <button type="button" id="btn-export-slot-events" class="btn btn-outline-dark btn-sm"><i class="bi bi-download"></i> Xuất CSV lịch sử</button>
+              </div>
             </header>
-            <div id="ops-slot-toolbar" class="ops-toolbar"></div>
-            <div id="ops-live-unassigned" class="ops-panel mb-3"></div>
-            <div id="ops-slot-grid" class="slot-grid-32" aria-live="polite"></div>
+            <div class="ops-tabs" role="tablist">
+              <button type="button" class="ops-tab is-active" data-slot-tab="tray" role="tab">Bản đồ khay</button>
+              <button type="button" class="ops-tab" data-slot-tab="history" role="tab">Lịch sử khe</button>
+              <button type="button" class="ops-tab" data-slot-tab="calibration" role="tab">Hiệu chuẩn</button>
+            </div>
+            <div id="slot-tab-tray" class="slot-tab">
+              <div class="ops-panel" style="position:relative">
+                <div class="ops-panel-head">
+                  <h2>Khay trước · 8 × 4</h2>
+                  <div class="tray-legend">
+                    <span><i class="tone-online"></i>Trực tuyến</span>
+                    <span><i class="tone-weak"></i>Sóng yếu</span>
+                    <span><i class="tone-offline"></i>Ngoại tuyến</span>
+                    <span><i class="tone-empty"></i>Không có SIM</span>
+                    <span><i class="tone-swapped"></i>Đảo trong 24h</span>
+                  </div>
+                </div>
+                <div id="ops-tray" class="tray" aria-live="polite"></div>
+                <div id="ops-live-unassigned" class="unassigned-strip"></div>
+                <div id="ops-tray-pop" class="tray-pop" hidden></div>
+              </div>
+            </div>
+            <div id="slot-tab-history" class="slot-tab d-none">
+              <div class="slot-history-split">
+                <div id="ops-slot-sim-card" class="ops-panel"></div>
+                <div class="ops-panel">
+                  <div class="ops-panel-head">
+                    <h2>Lịch sử khe</h2>
+                    <div class="slot-history-filters">
+                      <input type="date" id="slot-events-from" class="form-control form-control-sm" aria-label="Từ ngày" />
+                      <span class="text-muted">→</span>
+                      <input type="date" id="slot-events-to" class="form-control form-control-sm" aria-label="Đến ngày" />
+                    </div>
+                  </div>
+                  <div id="ops-slot-timeline"></div>
+                </div>
+              </div>
+            </div>
+            <div id="slot-tab-calibration" class="slot-tab d-none">
+              <div class="cal-note"><i class="bi bi-info-circle"></i> Khe được nhận diện bằng IMEI của modem. Chỉ cần gán một lần; khi nâng cấp, số khe cũ đã được chuyển sang IMEI đang cắm SIM đó. Đổi ở đây chỉ khi sắp xếp lại modem trong khay.</div>
+              <div class="ops-panel table-responsive">
+                <div class="ops-panel-head"><h2>Khe ↔ modem</h2><span id="ops-cal-summary" class="ops-list-note"></span></div>
+                <table class="table ops-table align-middle mb-0">
+                  <thead><tr><th>Khe</th><th>IMEI modem</th><th>SIM hiện tại</th><th>Số thuê bao</th><th>Trạng thái</th><th>Lần thấy cuối</th><th></th></tr></thead>
+                  <tbody id="ops-cal-body"></tbody>
+                </table>
+              </div>
+            </div>
           </section>
 
           <section id="view-sms" class="view-section ops-view d-none">
