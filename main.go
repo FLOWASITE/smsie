@@ -23,6 +23,7 @@ import (
 	"github.com/pccr10001/smsie/internal/mccmnc"
 	"github.com/pccr10001/smsie/internal/model"
 	"github.com/pccr10001/smsie/internal/repository"
+	"github.com/pccr10001/smsie/internal/simhealth"
 	"github.com/pccr10001/smsie/internal/worker"
 	"github.com/pccr10001/smsie/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
@@ -109,7 +110,12 @@ func main() {
 		DTMFDurationMillis: config.AppConfig.Calling.SIP.DTMFDurationMillis,
 	}, stdLogger, sipSyncStop)
 
-	sched := balance.NewScheduler(db, wm, logic.NewWebhookService(repository.NewWebhookRepository(db)), config.AppConfig.Balance)
+	webhookSvc := logic.NewWebhookService(repository.NewWebhookRepository(db))
+	sched := balance.NewScheduler(db, wm, webhookSvc, config.AppConfig.Balance)
+	simHealth := simhealth.NewService(db, wm, webhookSvc, config.AppConfig.SimHealth)
+	if config.AppConfig.SimHealth.Enabled {
+		sched.AddExtra(simHealth)
+	}
 	schedStop := make(chan struct{})
 	defer close(schedStop)
 	go sched.Run(schedStop)
