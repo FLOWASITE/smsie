@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -100,6 +100,13 @@ test('describeSlotEvent renders path and balance label', () => {
 test('bayBalanceLabel shows Chưa kiểm tra until USSD has run', () => {
     assert.equal(bayBalanceLabel({ balance_vnd: 0 }), 'Chưa kiểm tra');
     assert.equal(bayBalanceLabel({ balance_vnd: 48500, balance_updated_at: '2026-09-16T00:00:00Z' }), '48.500 đ');
+});
+
+test('describeHealthFinding: no_sms/unregistered danger, absent warning, label = detail', () => {
+    assert.deepEqual(describeHealthFinding({ kind: 'no_sms', detail: 'không nhận SMS nào 31 ngày — có thể bị thu hồi' }), { tone: 'danger', label: 'không nhận SMS nào 31 ngày — có thể bị thu hồi' });
+    assert.deepEqual(describeHealthFinding({ kind: 'unregistered', detail: 'không đăng ký mạng 25 giờ dù modem online' }), { tone: 'danger', label: 'không đăng ký mạng 25 giờ dù modem online' });
+    assert.deepEqual(describeHealthFinding({ kind: 'absent', detail: 'đã rút khỏi khay 8 ngày' }), { tone: 'warning', label: 'đã rút khỏi khay 8 ngày' });
+    assert.deepEqual(describeHealthFinding(undefined), { tone: 'danger', label: '' });
 });
 
 test('describeBalanceLevel maps level to tone and label', () => {

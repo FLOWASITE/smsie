@@ -36,6 +36,8 @@ type ModemWorker struct {
 	busy               bool
 	balanceMu          sync.Mutex
 	balanceRequestedAt time.Time
+	// lastRegisteredWrite chỉ do goroutine logicLoop (checkSignal) đọc/ghi → không cần mutex.
+	lastRegisteredWrite time.Time
 	modemMu            sync.RWMutex
 	reprobeMu          sync.Mutex
 	reprobe            bool
@@ -480,6 +482,14 @@ func (w *ModemWorker) initModem() {
 		} else {
 			w.setModem(modem)
 			logger.Log.Infof("Modem registered: %s (%s) Op: %s Sig: %d%%", iccid, w.PortName, operator, signal)
+			if err := w.repo.SetFirstSeenIfNull(iccid, time.Now()); err != nil {
+				logger.Log.Warnf("[%s] Set first_seen_at failed: %v", w.PortName, err)
+			}
+			if regCode == "1" || regCode == "5" {
+				if err := w.repo.TouchRegistered(iccid, time.Now()); err != nil {
+					logger.Log.Warnf("[%s] Touch last_registered_at failed: %v", w.PortName, err)
+				}
+			}
 			events, err := w.bayRepo.Observe(repository.Observation{IMEI: imei, ICCID: iccid, Operator: operator, PortName: w.PortName, At: time.Now()})
 			if err != nil {
 				logger.Log.Warnf("[%s] Slot observe failed: %v", w.PortName, err)

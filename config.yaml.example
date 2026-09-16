@@ -48,3 +48,10 @@ balance:
   low_threshold_vnd: 20000 # ngưỡng cảnh báo mặc định (per-SIM: low_balance_vnd)
   forecast_days: 7         # cảnh báo khi dự kiến hết tiền trong N ngày
   ussd_code: "*101#"
+
+sim_health:
+  enabled: true            # cảnh báo SIM "chết" (cùng chu kỳ với balance)
+  no_sms_days: 30          # không nhận SMS nào N ngày → có thể bị thu hồi
+  unregistered_hours: 24   # modem online nhưng không đăng ký mạng N giờ
+  absent_days: 7           # rút khỏi khay N ngày chưa cắm lại
+  remind_days: 7           # nhắc lại mỗi N ngày

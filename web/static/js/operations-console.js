@@ -7,6 +7,7 @@ const opsState = {
     phoneNumbers: {},
     balanceChecks: {},
     balanceStatus: [],
+    simHealth: [],
     loadedAt: null
 };
 
@@ -99,6 +100,21 @@ function describeBalanceLevel(item) {
     return { tone: 'muted', label: 'Chưa đọc số dư' };
 }
 
+// Finding từ /sim-health: no_sms/unregistered = nguy (danger), absent = nhắc (warning). Nhãn = detail server.
+function describeHealthFinding(finding) {
+    const f = finding || {};
+    return { tone: f.kind === 'absent' ? 'warning' : 'danger', label: f.detail || '' };
+}
+
+function opsHealthByICCID() {
+    const map = {};
+    (opsState.simHealth || []).forEach(item => { if ((item.findings || []).length) map[item.iccid] = item; });
+    return map;
+}
+
+function opsDate(value) { return value ? new Date(value).toLocaleDateString('vi-VN') : '—'; }
+function opsDateTime(value) { return value ? new Date(value).toLocaleString('vi-VN') : '—'; }
+
 function balanceSparkline(snapshots) {
     return (snapshots || []).slice(-7).map(s => `${Math.round(Number(s.balance_vnd || 0) / 1000)}k`).join(' → ');
 }
@@ -150,6 +166,12 @@ function opsAlerts() {
         const d = describeBalanceLevel(item);
         alerts.push({ level: d.tone, title: `Khe ${item.slot_number ?? slots[item.iccid] ?? '—'} · ${item.phone_number || item.iccid}`, note: d.label });
     });
+    (opsState.simHealth || []).forEach(item => {
+        (item.findings || []).forEach(f => {
+            const d = describeHealthFinding(f);
+            alerts.push({ level: d.tone, title: `Khe ${item.slot_number ?? slots[item.iccid] ?? '—'} · ${item.phone_number || item.iccid}`, note: d.label });
+        });
+    });
     if (!alerts.length) {
         alerts.push({ level: 'ok', title: 'Không có cảnh báo', note: 'Các modem đã gán đang hoạt động bình thường.' });
     }
@@ -164,7 +186,7 @@ function renderOpsKPIs() {
         { label: 'Modem trực tuyến', value: `${online}/32`, note: `${32 - mapped} khe chưa có mapping`, icon: 'bi-router', tone: 'mint' },
         { label: 'SIM đã gán', value: `${mapped}/32`, note: mapped ? 'Đã lưu hồ sơ vật lý' : 'Chưa có mapping vật lý', icon: 'bi-sim', tone: 'blue' },
         { label: 'Tin chưa đọc', value: unread, note: `${opsState.messages.length} tin trong lịch sử`, icon: 'bi-chat-left-text', tone: 'green' },
-        { label: 'Cảnh báo', value: opsAlerts().filter(alert => alert.level !== 'ok').length, note: `${opsState.balanceStatus.filter(item => item.level === 'low' || item.level === 'forecast').length} SIM sắp hết tiền`, icon: 'bi-exclamation-triangle', tone: 'coral' }
+        { label: 'Cảnh báo', value: opsAlerts().filter(alert => alert.level !== 'ok').length, note: `${opsState.balanceStatus.filter(item => item.level === 'low' || item.level === 'forecast').length} SIM sắp hết tiền · ${Object.keys(opsHealthByICCID()).length} SIM có dấu hiệu chết`, icon: 'bi-exclamation-triangle', tone: 'coral' }
     ];
     const container = $('#ops-kpis').empty();
     cards.forEach(card => {
@@ -407,7 +429,8 @@ function bayCard(cell) {
     const bay = cell.bay;
     const status = bay && bay.current_iccid ? opsBalanceByICCID()[bay.current_iccid] : null;
     const level = status ? status.level : '';
-    const card = opsElement('button', `bay ${cell.tone}${cell.swapped ? ' swapped' : ''}${level === 'low' || level === 'forecast' ? ` ${level}` : ''}`);
+    const sick = bay && bay.current_iccid && opsHealthByICCID()[bay.current_iccid];
+    const card = opsElement('button', `bay ${cell.tone}${cell.swapped ? ' swapped' : ''}${level === 'low' || level === 'forecast' ? ` ${level}` : ''}${sick ? ' sick' : ''}`);
     card.attr('type', 'button').prop('disabled', cell.tone === 'missing');
     const body = opsElement('div');
     body.append(opsElement('div', 'num', `Khe ${String(cell.slot).padStart(2, '0')}`));
@@ -441,6 +464,8 @@ function showTrayPop(cell, card) {
         ? [['ICCID', bay.current_iccid], ['IMEI', bay.imei], ['Nhà mạng', bay.operator || '—'], ['Số dư', bayBalanceLabel(bay)], ['Ở khe từ', bay.last_event_at ? new Date(bay.last_event_at).toLocaleString('vi-VN') : '—']]
         : [['IMEI', bay.imei], ['Cổng', bay.port_name || '—']];
     if (status && (status.level === 'low' || status.level === 'forecast' || (status.level === 'ok' && status.days_left != null))) rows.push(['Dự kiến hết', describeBalanceLevel(status).label]);
+    const health = bay.current_iccid ? opsHealthByICCID()[bay.current_iccid] : null;
+    if (health) rows.push(['Sức khoẻ', health.findings.map(f => f.detail).join(' · ')]);
     rows.forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
     pop.append(dl);
     if (bay.current_iccid) {
@@ -687,6 +712,8 @@ function renderMaintenancePreview() {
         const status = balances[modem.iccid];
         main.append(opsElement('div', 'balance-line', `Số dư hiện tại: ${opsBalanceLabel(modem)}${modem.balance_updated_at ? ` · cập nhật ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : ''}${status ? ` · ${describeBalanceLevel(status).label}` : ''}`));
         if (status && (status.snapshots || []).length >= 2) main.append(opsElement('div', 'ops-list-note mono', balanceSparkline(status.snapshots)));
+        const health = (opsState.simHealth || []).find(h => h.iccid === modem.iccid) || {};
+        main.append(opsElement('div', 'ops-list-note', `SMS cuối: ${opsDate(health.last_sms_at)} · đăng ký mạng: ${opsDateTime(health.last_registered_at)}`));
         main.append(opsElement('div', 'schedule-rule', 'Mỗi tháng · gọi thử hoặc SMS · tối đa 1 lần thành công'));
         const controls = opsElement('div', 'schedule-controls');
         controls.append(opsElement('span', `status-chip ${slot ? 'status-ready' : 'status-blocked'}`, slot ? 'Sẵn sàng cấu hình' : 'Cần mapping'));
@@ -828,12 +855,14 @@ function loadOperationsData() {
         $.get('/api/v1/modems'),
         $.get('/api/v1/sms', { page: 1, limit: 200 }),
         $.get('/api/v1/bays'),
-        $.get('/api/v1/balance/status')
-    ).done(function (modemResponse, smsResponse, bayResponse, balanceResponse) {
+        $.get('/api/v1/balance/status'),
+        $.get('/api/v1/sim-health')
+    ).done(function (modemResponse, smsResponse, bayResponse, balanceResponse, healthResponse) {
         opsState.modems = modemResponse[0] || [];
         opsState.messages = (smsResponse[0] && smsResponse[0].data) || [];
         opsState.bays = bayResponse[0] || [];
         opsState.balanceStatus = balanceResponse[0] || [];
+        opsState.simHealth = healthResponse[0] || [];
         opsState.modems.forEach(modem => {
             if (modem.phone_number) opsState.phoneNumbers[modem.iccid] = modem.phone_number;
         });
@@ -919,7 +948,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {

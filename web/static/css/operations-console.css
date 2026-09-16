@@ -2229,6 +2229,18 @@ body {
 .bay.forecast { border-color: #f3cf8a; }
 .bay.low { border-color: #e8a0a0; }
 
+/* SIM có dấu hiệu chết (/sim-health): chấm đỏ góc dưới phải */
+.bay.sick::after {
+  content: '';
+  position: absolute;
+  right: 0.55rem;
+  bottom: 0.55rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ops-danger, #c0392b);
+}
+
 .bay .swap {
   position: absolute;
   left: -1px;

@@ -39,3 +39,26 @@ func (r *ModemRepository) UpdateBalance(iccid string, balance int64, updatedAt t
 		"balance_updated_at": updatedAt,
 	}).Error
 }
+
+func (r *ModemRepository) TouchRegistered(iccid string, at time.Time) error {
+	return r.db.Model(&model.Modem{}).Where("iccid = ?", iccid).Update("last_registered_at", at).Error
+}
+
+func (r *ModemRepository) SetFirstSeenIfNull(iccid string, at time.Time) error {
+	return r.db.Model(&model.Modem{}).Where("iccid = ? AND first_seen_at IS NULL", iccid).Update("first_seen_at", at).Error
+}
+
+// LastReceivedSMSAt trả mốc hệ thống nhận SMS gần nhất theo ICCID (created_at, không phải
+// timestamp SCTS của mạng — có thể lệch thứ tự). Dùng MAX(id) thay vì MAX(created_at) vì
+// SQLite trả MAX(datetime) dạng chuỗi không scan được vào time.Time.
+func (r *ModemRepository) LastReceivedSMSAt() (map[string]time.Time, error) {
+	var rows []model.SMS
+	err := r.db.Select("iccid, created_at").
+		Where("id IN (?)", r.db.Model(&model.SMS{}).Select("MAX(id)").Where("type = ?", "received").Group("iccid")).
+		Find(&rows).Error
+	out := make(map[string]time.Time, len(rows))
+	for _, s := range rows {
+		out[s.ICCID] = s.CreatedAt
+	}
+	return out, err
+}

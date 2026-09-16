@@ -24,7 +24,15 @@ type Scheduler struct {
 	repo     *repository.BalanceRepository
 	runMu    sync.Mutex // Request: một lượt *101# tuần tự tại một thời điểm
 	evalMu   sync.Mutex // Evaluate: daily và RunNow không chèn alert trùng
+	extra    []Evaluator
 }
+
+// Evaluator là bước đánh giá thêm chạy cùng chu kỳ với Evaluate số dư (vd. simhealth) — interface
+// nhỏ để balance không import package đó (tránh vòng import).
+type Evaluator interface{ Evaluate() error }
+
+// AddExtra đăng ký bước chạy sau Evaluate số dư trong Run (không chạy ở RunNow).
+func (s *Scheduler) AddExtra(e Evaluator) { s.extra = append(s.extra, e) }
 
 func NewScheduler(db *gorm.DB, wm *worker.Manager, webhooks *logic.WebhookService, cfg config.BalanceConfig) *Scheduler {
 	return &Scheduler{db: db, wm: wm, webhooks: webhooks, cfg: cfg, repo: repository.NewBalanceRepository(db)}
@@ -86,6 +94,11 @@ func nextCheck(now time.Time, hour int) time.Time {
 func (s *Scheduler) evaluateLogged() {
 	if _, err := s.Evaluate(); err != nil {
 		logger.Log.Errorf("balance: đánh giá số dư lỗi: %v", err)
+	}
+	for _, e := range s.extra {
+		if err := e.Evaluate(); err != nil {
+			logger.Log.Errorf("balance: bước đánh giá thêm lỗi: %v", err)
+		}
 	}
 }
 

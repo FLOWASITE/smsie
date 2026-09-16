@@ -23,6 +23,7 @@ import (
 	"github.com/pccr10001/smsie/internal/mccmnc"
 	"github.com/pccr10001/smsie/internal/model"
 	"github.com/pccr10001/smsie/internal/repository"
+	"github.com/pccr10001/smsie/internal/simhealth"
 	"github.com/pccr10001/smsie/internal/worker"
 	"github.com/pccr10001/smsie/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
@@ -109,7 +110,12 @@ func main() {
 		DTMFDurationMillis: config.AppConfig.Calling.SIP.DTMFDurationMillis,
 	}, stdLogger, sipSyncStop)
 
-	sched := balance.NewScheduler(db, wm, logic.NewWebhookService(repository.NewWebhookRepository(db)), config.AppConfig.Balance)
+	webhookSvc := logic.NewWebhookService(repository.NewWebhookRepository(db))
+	sched := balance.NewScheduler(db, wm, webhookSvc, config.AppConfig.Balance)
+	simHealth := simhealth.NewService(db, wm, webhookSvc, config.AppConfig.SimHealth)
+	if config.AppConfig.SimHealth.Enabled {
+		sched.AddExtra(simHealth)
+	}
 	schedStop := make(chan struct{})
 	defer close(schedStop)
 	go sched.Run(schedStop)
@@ -127,6 +133,7 @@ func main() {
 	mh := api.NewModemHandler(db, wm, callMgr)
 	bh := api.NewBayHandler(db, wm)
 	balh := api.NewBalanceHandler(db, sched)
+	shh := api.NewSimHealthHandler(db, simHealth)
 	sh := api.NewSMSHandler(db)
 	wh := api.NewWebhookHandler(db)
 	uh := api.NewUserHandler(db)
@@ -154,6 +161,7 @@ func main() {
 			authGroup.GET("/modems", mh.ListModems)
 			authGroup.GET("/bays", bh.List)
 			authGroup.GET("/balance/status", balh.Status)
+			authGroup.GET("/sim-health", shh.Status)
 			authGroup.GET("/slot-events", bh.ListEvents)
 			authGroup.GET("/modems/:iccid", mh.GetModem)
 			authGroup.PUT("/modems/:iccid", mh.UpdateModem)
@@ -185,6 +193,7 @@ func main() {
 				adminGroup.PATCH("/modems/:iccid/profile", mh.UpdateProfile)
 				adminGroup.PATCH("/bays/:imei", bh.Assign)
 				adminGroup.GET("/balance/alerts", balh.Alerts)
+				adminGroup.GET("/sim-health/alerts", shh.Alerts)
 				adminGroup.POST("/balance/run", balh.RunNow)
 				adminGroup.GET("/admin/backup", backupHandler.Download)
 
@@ -229,6 +238,10 @@ func initDB() *gorm.DB {
 	// Auto Migrate
 	if err := autoMigrateSchema(db); err != nil {
 		logger.Log.Fatalf("Failed to migrate database schema: %v", err)
+	}
+	// Backfill first_seen_at cho SIM có trước tính năng: lấy SMS đầu tiên, không có thì bây giờ.
+	if err := db.Exec("UPDATE modems SET first_seen_at = COALESCE((SELECT MIN(timestamp) FROM sms WHERE sms.iccid = modems.iccid), ?) WHERE first_seen_at IS NULL", time.Now()).Error; err != nil {
+		logger.Log.Warnf("Backfill first_seen_at failed: %v", err)
 	}
 	if err := repository.NewBayRepository(db).MigrateFromModems(); err != nil {
 		logger.Log.Fatalf("Failed to migrate slot numbers to modem bays: %v", err)
@@ -276,7 +289,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {
