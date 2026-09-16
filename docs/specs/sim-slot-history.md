@@ -20,8 +20,8 @@ và làm cho số khe trên giao diện luôn phản ánh đúng khay thật tha
 
 ```
 modem_bays                       -- khay vật lý, hiệu chuẩn một lần
-  slot_number   int  PK          -- 1..32
-  imei          text UNIQUE NOT NULL
+  imei          text PK
+  slot_number   int  NULL UNIQUE -- 1..32; NULL = modem đã thấy nhưng chưa gán khe
   current_iccid text NULL        -- SIM đang ở khe; NULL = khe trống
   last_seen_at  datetime
 
@@ -70,6 +70,8 @@ UPDATE `balance_vnd` của event mới nhất chưa có số dư của ICCID đ�
 **Không** ghi `removed` khi worker dừng vì rớt COM/khởi động lại — tránh rác.
 
 Ràng buộc: `modem_bays.slot_number` unique 1..32 khi không NULL; một IMEI một bay.
+
+Modem lạ mà ICCID đang được ghi ở khe khác → khe cũ giữ `current_iccid` cũ cho tới lần probe sau (chấp nhận).
 
 ## API
 

@@ -12,6 +12,9 @@ type Decision struct {
 
 // DecideSlotEvents nhận toàn bộ bays hiện có, IMEI và ICCID vừa probe được.
 func DecideSlotEvents(bays []model.ModemBay, imei, iccid string) Decision {
+	if imei == "" || iccid == "" {
+		return Decision{}
+	}
 	var bay *model.ModemBay
 	var old *model.ModemBay
 	for i := range bays {

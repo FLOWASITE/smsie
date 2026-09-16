@@ -23,6 +23,15 @@ func TestDecideUnknownModemInsertsWithoutSlot(t *testing.T) {
 	}
 }
 
+func TestDecideEmptyInputsNoop(t *testing.T) {
+	for _, tc := range []struct{ imei, iccid string }{{"", "X"}, {"IMEI-A", ""}} {
+		d := DecideSlotEvents(bays(), tc.imei, tc.iccid)
+		if len(d.Events) != 0 || d.Bay.IMEI != "" {
+			t.Fatalf("imei=%q iccid=%q: d = %+v", tc.imei, tc.iccid, d)
+		}
+	}
+}
+
 func TestDecideSameSimNoEvent(t *testing.T) {
 	d := DecideSlotEvents(bays(model.ModemBay{IMEI: "IMEI-A", SlotNumber: slot(15), CurrentICCID: "ICCID-1"}), "IMEI-A", "ICCID-1")
 	if len(d.Events) != 0 {
