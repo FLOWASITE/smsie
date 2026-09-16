@@ -300,6 +300,25 @@ func (w *ModemWorker) IsStopped() bool {
 	}
 }
 
+// noSIMReprobeDelay: khoảng chờ trước khi probe lại một modem không có SIM.
+// ponytail: hằng số cố định, đủ cho 32 khe; đưa vào config nếu cần chỉnh.
+const noSIMReprobeDelay = 30 * time.Second
+
+// scheduleReprobe dừng worker sau delay và đánh dấu để Manager mở lại cổng
+// cho một vòng probe mới (cùng cơ chế với rớt serial).
+func (w *ModemWorker) scheduleReprobe(delay time.Duration) {
+	go func() {
+		select {
+		case <-time.After(delay):
+		case <-w.stop:
+			return
+		}
+		logger.Log.Debugf("[%s] Re-probing for SIM", w.PortName)
+		w.requestReprobe()
+		w.Stop()
+	}()
+}
+
 func (w *ModemWorker) requestReprobe() {
 	w.reprobeMu.Lock()
 	w.reprobe = true
@@ -381,11 +400,20 @@ func (w *ModemWorker) initModem() {
 		}
 
 		if iccid == "" {
-			logger.Log.Errorf("[%s] Failed to get ICCID", w.PortName)
+			if isSIMNotInserted(err) {
+				logger.Log.Debugf("[%s] No SIM inserted (IMEI %s)", w.PortName, imei)
+			} else {
+				logger.Log.Errorf("[%s] Failed to get ICCID: %v", w.PortName, err)
+			}
 			if imei != "" && isSIMNotInserted(err) {
 				if err := w.bayRepo.MarkEmpty(imei, w.PortName, time.Now()); err != nil {
 					logger.Log.Warnf("[%s] Failed to mark bay empty: %v", w.PortName, err)
 				}
+			}
+			if imei != "" {
+				// Modem thật nhưng chưa có SIM: chờ rồi tự probe lại để bắt SIM cắm sau,
+				// thay vì để cổng nằm trong probedPorts vĩnh viễn tới khi rút USB / khởi động lại.
+				w.scheduleReprobe(noSIMReprobeDelay)
 			}
 			return
 		}
