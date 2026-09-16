@@ -8,13 +8,14 @@ import (
 	"github.com/pccr10001/smsie/internal/model"
 )
 
-type Config struct{ NoSMSDays, UnregisteredHours, AbsentDays int }
+type Config struct{ NoSMSDays, UnregisteredHours, AbsentDays, PlanWarnDays int }
 
 type Input struct {
 	ICCID                                                   string
 	Online                                                  bool
 	LastRegisteredAt, FirstSeenAt, LastSMSAt, LastRemovedAt *time.Time
 	InBay                                                   bool
+	PlanExpiresAt                                           *time.Time // hạn TK chính bóc từ tin nhà mạng
 }
 
 type Finding struct {
@@ -48,6 +49,14 @@ func Evaluate(now time.Time, cfg Config, inputs []Input) []Finding {
 		}
 		if !in.InBay && in.LastRemovedAt != nil && cfg.AbsentDays > 0 && now.Sub(*in.LastRemovedAt) >= days(cfg.AbsentDays) {
 			out = append(out, Finding{in.ICCID, model.SimAlertAbsent, fmt.Sprintf("đã rút khỏi khay %d ngày", int(now.Sub(*in.LastRemovedAt).Hours()/24))})
+		}
+		if in.PlanExpiresAt != nil && cfg.PlanWarnDays > 0 && in.PlanExpiresAt.Sub(now) <= days(cfg.PlanWarnDays) {
+			left := int(in.PlanExpiresAt.Sub(now).Hours() / 24)
+			msg := fmt.Sprintf("còn %d ngày", left)
+			if left < 0 {
+				msg = fmt.Sprintf("đã quá hạn %d ngày", -left)
+			}
+			out = append(out, Finding{in.ICCID, model.SimAlertPlanExpiring, fmt.Sprintf("TK chính hết hạn %s (%s)", in.PlanExpiresAt.Format("02/01/2006"), msg)})
 		}
 	}
 	return out

@@ -591,6 +591,7 @@ func (w *ModemWorker) handleURC(line string) {
 		text := decodeCUSD(line)
 		w.capturePhoneNumber(text)
 		w.captureBalance(text)
+		w.capturePlanInfo(text)
 		return
 	}
 

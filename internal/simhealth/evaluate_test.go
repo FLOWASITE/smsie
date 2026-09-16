@@ -8,7 +8,7 @@ import (
 func TestEvaluate(t *testing.T) {
 	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
 	ago := func(d time.Duration) *time.Time { t := now.Add(-d); return &t }
-	cfg := Config{NoSMSDays: 30, UnregisteredHours: 24, AbsentDays: 7}
+	cfg := Config{NoSMSDays: 30, UnregisteredHours: 24, AbsentDays: 7, PlanWarnDays: 7}
 	cases := []struct {
 		name   string
 		in     Input
@@ -24,6 +24,9 @@ func TestEvaluate(t *testing.T) {
 		{"vắng khay 8 ngày → absent", Input{LastRemovedAt: ago(8 * 24 * time.Hour), LastSMSAt: ago(time.Hour)}, "absent", "đã rút khỏi khay 8 ngày"},
 		{"đã rút 8 ngày, im 60 ngày → chỉ absent", Input{LastRemovedAt: ago(8 * 24 * time.Hour), LastSMSAt: ago(60 * 24 * time.Hour)}, "absent", "đã rút khỏi khay 8 ngày"},
 		{"vắng 3 ngày → im", Input{LastRemovedAt: ago(3 * 24 * time.Hour), LastSMSAt: ago(time.Hour)}, "", ""},
+		{"TK chính còn 30 ngày → im", Input{LastSMSAt: ago(time.Hour), InBay: true, PlanExpiresAt: ago(-30 * 24 * time.Hour)}, "", ""},
+		{"TK chính còn 5 ngày → plan_expiring", Input{LastSMSAt: ago(time.Hour), InBay: true, PlanExpiresAt: ago(-5 * 24 * time.Hour)}, "plan_expiring", "TK chính hết hạn 21/09/2026 (còn 5 ngày)"},
+		{"TK chính quá hạn 3 ngày → plan_expiring", Input{LastSMSAt: ago(time.Hour), InBay: true, PlanExpiresAt: ago(3 * 24 * time.Hour)}, "plan_expiring", "TK chính hết hạn 13/09/2026 (đã quá hạn 3 ngày)"},
 		{"removed cũ nhưng đang trong khay → im", Input{LastRemovedAt: ago(9 * 24 * time.Hour), LastSMSAt: ago(time.Hour), InBay: true}, "", ""},
 	}
 	for _, c := range cases {

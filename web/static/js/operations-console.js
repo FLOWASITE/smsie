@@ -109,10 +109,45 @@ function describeBalanceLevel(item) {
     return { tone: 'muted', label: 'Chưa đọc số dư' };
 }
 
-// Finding từ /sim-health: no_sms/unregistered = nguy (danger), absent = nhắc (warning). Nhãn = detail server.
+// Finding từ /sim-health: no_sms/unregistered = nguy (danger), absent = nhắc (warning),
+// plan_expiring = nhắc, thành nguy khi đã quá hạn. Nhãn = detail server.
 function describeHealthFinding(finding) {
     const f = finding || {};
-    return { tone: f.kind === 'absent' ? 'warning' : 'danger', label: f.detail || '' };
+    const detail = f.detail || '';
+    if (f.kind === 'plan_expiring') return { tone: detail.includes('quá hạn') ? 'danger' : 'warning', label: detail };
+    return { tone: f.kind === 'absent' ? 'warning' : 'danger', label: detail };
+}
+
+const PLAN_WARN_MS = 7 * 24 * 60 * 60 * 1000;
+
+function opsNumber(value) {
+    return Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 1 });
+}
+
+// Gói cước bóc từ tin nhà mạng (plan_*, free_*, data_mb trên modem). Thuần: now do caller đưa.
+// expiry = dd/mm/yyyy hoặc '—'; expiryTone 'danger' khi TK chính còn ≤7 ngày (kể cả đã quá hạn).
+function describePlan(modem, now) {
+    const m = modem || {};
+    const ts = now === undefined ? Date.now() : now;
+    const expiry = m.plan_expires_at ? `${opsShortDate(m.plan_expires_at)}/${new Date(m.plan_expires_at).getFullYear()}` : '—';
+    const expiryTone = m.plan_expires_at && new Date(m.plan_expires_at).getTime() - ts <= PLAN_WARN_MS ? 'danger' : '';
+    const until = at => (at ? `đến ${opsShortDate(at)}` : '');
+    const minutes = m.free_minutes != null ? `${opsNumber(m.free_minutes)} phút` : '—';
+    const sms = m.free_sms != null ? `${m.free_sms} SMS` : '—';
+    const data = m.data_mb != null ? (m.data_mb >= 1024 ? `${opsNumber(m.data_mb / 1024)} GB` : `${opsNumber(m.data_mb)} MB`) : '—';
+    const head = m.plan_expires_at ? `Hạn TK ${opsShortDate(m.plan_expires_at)}` : '';
+    const parts = [head, m.free_minutes != null ? minutes : '', m.free_sms != null ? sms : '', m.data_mb != null ? data : ''].filter(Boolean);
+    let title = '';
+    if (m.plan_expires_at) {
+        title = `TK chính hết hạn ${expiry}`;
+        if (m.plan_updated_at) title += ` · cập nhật ${opsShortDate(m.plan_updated_at)} ${new Date(m.plan_updated_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return {
+        expiry, expiryTone, minutes, sms, data, head, title,
+        minutesUntil: m.free_minutes != null ? until(m.free_minutes_expires_at) : '',
+        smsUntil: m.free_sms != null ? until(m.free_sms_expires_at) : '',
+        line: parts.join(' · '),
+    };
 }
 
 const KEEPALIVE_RECENT_MS = 7 * 24 * 60 * 60 * 1000;
@@ -974,8 +1009,9 @@ function renderMaintenance() {
     const rowOf = modem => {
         const ka = keepalive[modem.iccid] || { iccid: modem.iccid, enabled: !!modem.keepalive_enabled };
         const status = balances[modem.iccid];
-        return { ka, d: describeKeepalive(ka, Date.now()), slot: slots[modem.iccid], phone: opsState.phoneNumbers[modem.iccid], level: status ? describeBalanceLevel(status) : null, pending: opsState.keepaliveRuns[modem.iccid], selected: route.iccid === modem.iccid };
+        return { ka, d: describeKeepalive(ka, Date.now()), slot: slots[modem.iccid], phone: opsState.phoneNumbers[modem.iccid], level: status ? describeBalanceLevel(status) : null, plan: describePlan(modem, Date.now()), pending: opsState.keepaliveRuns[modem.iccid], selected: route.iccid === modem.iccid };
     };
+    const planCell = (value, until) => { const cell = opsElement('span', '', value); if (until) cell.append(opsElement('small', 'ka-plan-until', until)); return cell; };
     const slotPill = slot => opsElement('span', `ka-slot mono${slot ? '' : ' is-empty'}`, slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán');
     const autoCheck = (modem, selected) => {
         const shouldAutoCheck = route.view === 'maintenance' && (selected || (opsState.modems.length === 1 && !route.iccid));
@@ -986,7 +1022,7 @@ function renderMaintenance() {
         const panel = opsElement('div', 'ops-panel table-responsive');
         const table = opsElement('table', 'table ops-table align-middle mb-0 ka-table');
         const head = $('<tr>');
-        ['Khe', 'Số thuê bao', 'Nhà mạng', 'COM', 'Sóng', 'Số dư', 'Hoạt động gần nhất', 'Lần nuôi kế tiếp', 'Tháng này', 'Nuôi', 'Chu kỳ', 'Lần chạy cuối', 'Thao tác'].forEach(label => head.append(opsElement('th', '', label)));
+        ['Khe', 'Số thuê bao', 'Nhà mạng', 'COM', 'Sóng', 'Số dư', 'Hạn TK', 'Phút NM', 'SMS NM', 'Data', 'Hoạt động gần nhất', 'Lần nuôi kế tiếp', 'Tháng này', 'Nuôi', 'Chu kỳ', 'Lần chạy cuối', 'Thao tác'].forEach(label => head.append(opsElement('th', '', label)));
         table.append($('<thead>').append(head));
         const body = $('<tbody>');
         sorted.forEach(modem => {
@@ -1002,6 +1038,10 @@ function renderMaintenance() {
                 td(modem.port_name || '—', 'mono'),
                 td(`${modem.signal_strength || 0}%`, 'mono'),
                 td(opsBalanceLabel(modem), `mono${r.level ? ` tone-${r.level.tone}` : ''}`).attr('title', modem.balance_updated_at ? `cập nhật ${opsShortDate(modem.balance_updated_at)}${r.level ? ` · ${r.level.label}` : ''}` : ''),
+                td(r.plan.expiry, `mono${r.plan.expiryTone ? ` tone-${r.plan.expiryTone}` : ''}`).attr('title', r.plan.title),
+                td(planCell(r.plan.minutes, r.plan.minutesUntil), 'mono'),
+                td(planCell(r.plan.sms, r.plan.smsUntil), 'mono'),
+                td(r.plan.data, 'mono'),
                 td(r.ka.last_activity_at ? opsDateTime(r.ka.last_activity_at) : '—', 'mono'),
                 td(r.ka.enabled && r.ka.next_due_at ? opsDateTime(r.ka.next_due_at) : '—', 'mono'),
                 td(`${r.ka.sent_this_month || 0} / ${cfg.max_per_month ?? '—'}`, 'mono'),
@@ -1036,6 +1076,12 @@ function renderMaintenance() {
         facts.append(fact('Nuôi kế tiếp', r.ka.enabled && r.ka.next_due_at ? opsShortDate(r.ka.next_due_at) : '—'));
         if (modem.keepalive_interval) facts.append(fact('Chu kỳ', `${modem.keepalive_interval} ngày`));
         card.append(facts);
+        if (r.plan.line) {
+            const planLine = opsElement('div', 'ka-plan mono').attr('title', r.plan.title);
+            if (r.plan.expiryTone) planLine.append(opsElement('span', `tone-${r.plan.expiryTone}`, r.plan.head), document.createTextNode(r.plan.line.slice(r.plan.head.length)));
+            else planLine.text(r.plan.line);
+            card.append(planLine);
+        }
         const result = kaResult(r.pending);
         const actions = kaActions(modem, r.ka, r.pending);
         card.append(opsElement('div', 'ka-rule').append(kaSwitch(modem, r.ka, result), kaRunPill(r.ka)));
@@ -1436,7 +1482,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, maintenanceViewFromStorage, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describePlan, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, maintenanceViewFromStorage, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {

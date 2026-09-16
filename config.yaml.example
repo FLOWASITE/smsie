@@ -57,6 +57,7 @@ sim_health:
   unregistered_hours: 24   # modem online nhưng không đăng ký mạng N giờ
   absent_days: 7           # rút khỏi khay N ngày chưa cắm lại
   remind_days: 7           # nhắc lại mỗi N ngày
+  plan_warn_days: 7        # TK chính (bóc từ tin nhà mạng) còn ≤ N ngày → cảnh báo sắp hết hạn
 
 keepalive:
   enabled: false           # nuôi SIM — TỐN TIỀN (gửi SMS nội mạng), phải bật tường minh

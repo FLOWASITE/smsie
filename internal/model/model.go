@@ -56,6 +56,15 @@ type Modem struct {
 	BalanceVND        int64      `gorm:"column:balance_vnd;default:0" json:"balance_vnd"`
 	BalanceUpdatedAt  *time.Time `gorm:"column:balance_updated_at" json:"balance_updated_at,omitempty"`
 	LowBalanceVND     *int64     `gorm:"column:low_balance_vnd" json:"low_balance_vnd,omitempty"` // ngưỡng riêng, nil = dùng config
+	// Gói cước bóc từ tin nhà mạng (SMS sau *102#, hoặc +CUSD): hạn TK chính, phút/SMS nội mạng, data.
+	PlanExpiresAt        *time.Time `gorm:"column:plan_expires_at" json:"plan_expires_at,omitempty"`
+	FreeMinutes          *float64   `gorm:"column:free_minutes" json:"free_minutes,omitempty"`
+	FreeMinutesExpiresAt *time.Time `gorm:"column:free_minutes_expires_at" json:"free_minutes_expires_at,omitempty"`
+	FreeSMS              *int       `gorm:"column:free_sms" json:"free_sms,omitempty"`
+	FreeSMSExpiresAt     *time.Time `gorm:"column:free_sms_expires_at" json:"free_sms_expires_at,omitempty"`
+	DataMB               *float64   `gorm:"column:data_mb" json:"data_mb,omitempty"`
+	PlanUpdatedAt        *time.Time `gorm:"column:plan_updated_at" json:"plan_updated_at,omitempty"`
+	PlanRaw              string     `gorm:"column:plan_raw;size:500" json:"plan_raw,omitempty"`
 	LastRegisteredAt  *time.Time `gorm:"column:last_registered_at" json:"last_registered_at,omitempty"`
 	FirstSeenAt       *time.Time `gorm:"column:first_seen_at" json:"first_seen_at,omitempty"`
 	KeepaliveEnabled  bool       `gorm:"column:keepalive_enabled;not null;default:false" json:"keepalive_enabled"`
@@ -157,6 +166,17 @@ type PhoneNumberHistory struct {
 	At       time.Time `gorm:"index" json:"at"`
 }
 
+// PlanInfo là các trường bóc được từ một tin nhà mạng; nil = tin không nhắc tới.
+type PlanInfo struct {
+	PlanExpiresAt        *time.Time
+	FreeMinutes          *float64
+	FreeMinutesExpiresAt *time.Time
+	FreeSMS              *int
+	FreeSMSExpiresAt     *time.Time
+	DataMB               *float64
+	Raw                  string // text đã khớp, cắt 500 ký tự
+}
+
 // BalanceSnapshot là chuỗi số dư theo thời gian, ghi mỗi lần đọc được *101#.
 type BalanceSnapshot struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
@@ -185,6 +205,7 @@ const (
 	SimAlertUnregistered = "unregistered"
 	SimAlertAbsent       = "absent"
 	SimAlertKeepalive    = "keepalive"
+	SimAlertPlanExpiring = "plan_expiring"
 )
 
 // SimAlert ghi lại mỗi lần đã cảnh báo SIM "chết" (nhắc lại theo remind_days).

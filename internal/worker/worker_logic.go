@@ -391,6 +391,7 @@ func (w *ModemWorker) processPDU(raw string) error {
 	}
 	w.capturePhoneNumber(content)
 	w.captureBalance(content)
+	w.capturePlanInfo(content)
 
 	// Trigger Webhook
 	w.webhookService.Dispatch(sms)

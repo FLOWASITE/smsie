@@ -57,6 +57,7 @@ type SimHealthConfig struct {
 	UnregisteredHours int  `mapstructure:"unregistered_hours"`
 	AbsentDays        int  `mapstructure:"absent_days"`
 	RemindDays        int  `mapstructure:"remind_days"`
+	PlanWarnDays      int  `mapstructure:"plan_warn_days"`
 }
 
 type BalanceConfig struct {
@@ -149,6 +150,7 @@ func LoadConfig() {
 	viper.SetDefault("sim_health.unregistered_hours", 24)
 	viper.SetDefault("sim_health.absent_days", 7)
 	viper.SetDefault("sim_health.remind_days", 7)
+	viper.SetDefault("sim_health.plan_warn_days", 7)
 	viper.SetDefault("keepalive.enabled", false)
 	viper.SetDefault("keepalive.interval_days", 25)
 	viper.SetDefault("keepalive.max_per_month", 3)
