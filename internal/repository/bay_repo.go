@@ -6,6 +6,7 @@ import (
 
 	"github.com/pccr10001/smsie/internal/model"
 	"github.com/pccr10001/smsie/internal/slotlog"
+	"github.com/pccr10001/smsie/pkg/logger"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -17,6 +18,16 @@ type BayRepository struct {
 }
 
 func NewBayRepository(db *gorm.DB) *BayRepository { return &BayRepository{db: db} }
+
+// syncSlotCache ghi modems.slot_number (cache của modem_bays): bỏ cache cũ của SIM khác đang giữ slot đó trước, vì cột vẫn UNIQUE.
+func syncSlotCache(tx *gorm.DB, iccid string, slot *int) error {
+	if slot != nil {
+		if err := tx.Model(&model.Modem{}).Where("slot_number = ? AND iccid <> ?", *slot, iccid).Update("slot_number", nil).Error; err != nil {
+			return err
+		}
+	}
+	return tx.Model(&model.Modem{}).Where("iccid = ?", iccid).Update("slot_number", slot).Error
+}
 
 // Observation là kết quả probe một modem: worker gọi Observe sau khi đã lưu modems.
 type Observation struct {
@@ -54,22 +65,37 @@ func (r *BayRepository) Observe(o Observation) ([]model.SimSlotEvent, error) {
 		if len(d.Events) == 0 {
 			return nil
 		}
-		var modem model.Modem
-		tx.First(&modem, "iccid = ?", o.ICCID)
+		ids := make([]string, 0, len(d.Events))
+		for i := range d.Events {
+			ids = append(ids, d.Events[i].ICCID)
+		}
+		var modems []model.Modem
+		tx.Where("iccid IN ?", ids).Find(&modems)
+		phoneByICCID := make(map[string]string, len(modems))
+		for _, m := range modems {
+			phoneByICCID[m.ICCID] = m.PhoneNumber
+		}
 		for i := range d.Events {
 			e := &d.Events[i]
 			e.DetectedAt = o.At
 			e.PortName = o.PortName
+			e.PhoneNumber = phoneByICCID[e.ICCID]
 			if e.ICCID == o.ICCID {
-				e.PhoneNumber = modem.PhoneNumber
 				e.Operator = o.Operator
 			}
 		}
 		if err := tx.Create(&d.Events).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&model.Modem{}).Where("iccid = ?", o.ICCID).Update("slot_number", d.Bay.SlotNumber).Error; err != nil {
+		if err := syncSlotCache(tx, o.ICCID, d.Bay.SlotNumber); err != nil {
 			return err
+		}
+		for i := range d.Events {
+			if d.Events[i].Event == model.SlotEventRemoved {
+				if err := syncSlotCache(tx, d.Events[i].ICCID, nil); err != nil {
+					return err
+				}
+			}
 		}
 		written = d.Events
 		return nil
@@ -92,6 +118,9 @@ func (r *BayRepository) MarkEmpty(imei, portName string, at time.Time) error {
 		}
 		ev := model.SimSlotEvent{DetectedAt: at, ICCID: bay.CurrentICCID, IMEI: imei, Event: model.SlotEventRemoved, FromSlot: bay.SlotNumber, PortName: portName}
 		if err := tx.Create(&ev).Error; err != nil {
+			return err
+		}
+		if err := syncSlotCache(tx, bay.CurrentICCID, nil); err != nil {
 			return err
 		}
 		return tx.Model(&bay).Updates(map[string]interface{}{"current_iccid": "", "last_seen_at": at}).Error
@@ -122,14 +151,17 @@ func (r *BayRepository) AssignSlot(imei string, slot *int) error {
 				return ErrSlotTaken
 			}
 		}
-		res := tx.Model(&model.ModemBay{}).Where("imei = ?", imei).Update("slot_number", slot)
-		if res.Error != nil {
-			return res.Error
+		var bay model.ModemBay
+		if err := tx.First(&bay, "imei = ?", imei).Error; err != nil {
+			return err
 		}
-		if res.RowsAffected == 0 {
-			return gorm.ErrRecordNotFound
+		if err := tx.Model(&model.ModemBay{}).Where("imei = ?", imei).Update("slot_number", slot).Error; err != nil {
+			return err
 		}
-		return tx.Model(&model.Modem{}).Where("iccid = (SELECT current_iccid FROM modem_bays WHERE imei = ?)", imei).Update("slot_number", slot).Error
+		if bay.CurrentICCID != "" {
+			return syncSlotCache(tx, bay.CurrentICCID, slot)
+		}
+		return nil
 	})
 }
 
@@ -186,12 +218,18 @@ func (r *BayRepository) MigrateFromModems() error {
 	seenIMEI := map[string]bool{}
 	for _, m := range modems {
 		if seenIMEI[m.IMEI] {
+			if logger.Log != nil {
+				logger.Log.Warnf("MigrateFromModems: bỏ qua ICCID=%s vì IMEI=%s trùng", m.ICCID, m.IMEI)
+			}
 			continue
 		}
 		seenIMEI[m.IMEI] = true
 		var n int64
 		r.db.Model(&model.ModemBay{}).Where("imei = ? OR slot_number = ?", m.IMEI, *m.SlotNumber).Count(&n)
 		if n > 0 {
+			if logger.Log != nil {
+				logger.Log.Warnf("MigrateFromModems: bỏ qua IMEI=%s slot=%d vì bay/slot đã tồn tại", m.IMEI, *m.SlotNumber)
+			}
 			continue
 		}
 		if err := r.db.Create(&model.ModemBay{IMEI: m.IMEI, SlotNumber: m.SlotNumber, CurrentICCID: m.ICCID}).Error; err != nil {

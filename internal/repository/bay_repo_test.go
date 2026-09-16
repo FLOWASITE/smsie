@@ -49,8 +49,8 @@ func TestMigrateFromModemsCopiesSlotToBayOnce(t *testing.T) {
 
 func TestObserveWritesEventsAndSyncsSlotCache(t *testing.T) {
 	db := newBayTestDB(t)
-	db.Create(&model.Modem{ICCID: "ICCID-1", IMEI: "IMEI-A", PhoneNumber: "0987654321"})
-	db.Create(&model.Modem{ICCID: "ICCID-2", IMEI: "IMEI-B"})
+	db.Create(&model.Modem{ICCID: "ICCID-1", IMEI: "IMEI-A", PhoneNumber: "0987654321", SlotNumber: intp(15)})
+	db.Create(&model.Modem{ICCID: "ICCID-2", IMEI: "IMEI-B", SlotNumber: intp(16)})
 	db.Create(&model.ModemBay{IMEI: "IMEI-A", SlotNumber: intp(15), CurrentICCID: "ICCID-1"})
 	db.Create(&model.ModemBay{IMEI: "IMEI-B", SlotNumber: intp(16), CurrentICCID: "ICCID-2"})
 	repo := NewBayRepository(db)
@@ -59,13 +59,21 @@ func TestObserveWritesEventsAndSyncsSlotCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[1].Event != model.SlotEventMoved || events[1].PhoneNumber != "0987654321" || events[1].Operator != "Viettel" || events[1].PortName != "COM22" {
-		t.Fatalf("events = %+v", events)
+	if len(events) != 2 || events[0].Event != model.SlotEventRemoved || events[0].ICCID != "ICCID-2" || events[0].FromSlot == nil || *events[0].FromSlot != 16 {
+		t.Fatalf("events[0] = %+v", events)
+	}
+	if events[1].Event != model.SlotEventMoved || events[1].PhoneNumber != "0987654321" || events[1].Operator != "Viettel" || events[1].PortName != "COM22" {
+		t.Fatalf("events[1] = %+v", events)
 	}
 	var m model.Modem
 	db.First(&m, "iccid = ?", "ICCID-1")
 	if m.SlotNumber == nil || *m.SlotNumber != 16 {
-		t.Fatalf("modems.slot_number cache = %v", m.SlotNumber)
+		t.Fatalf("modems.slot_number cache (ICCID-1) = %v", m.SlotNumber)
+	}
+	var m2 model.Modem
+	db.First(&m2, "iccid = ?", "ICCID-2")
+	if m2.SlotNumber != nil {
+		t.Fatalf("modems.slot_number cache (ICCID-2) must be cleared, got %v", *m2.SlotNumber)
 	}
 	var a, b model.ModemBay
 	db.First(&a, "imei = ?", "IMEI-A")
@@ -117,6 +125,21 @@ func TestMarkEmptyWritesRemoved(t *testing.T) {
 	}
 }
 
+func TestMarkEmptyClearsSlotCache(t *testing.T) {
+	db := newBayTestDB(t)
+	db.Create(&model.Modem{ICCID: "ICCID-1", IMEI: "IMEI-A", SlotNumber: intp(15)})
+	db.Create(&model.ModemBay{IMEI: "IMEI-A", SlotNumber: intp(15), CurrentICCID: "ICCID-1"})
+	repo := NewBayRepository(db)
+	if err := repo.MarkEmpty("IMEI-A", "COM17", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var m model.Modem
+	db.First(&m, "iccid = ?", "ICCID-1")
+	if m.SlotNumber != nil {
+		t.Fatalf("expected modems.slot_number cleared, got %v", *m.SlotNumber)
+	}
+}
+
 func TestAssignSlotRejectsTakenSlot(t *testing.T) {
 	db := newBayTestDB(t)
 	db.Create(&model.ModemBay{IMEI: "IMEI-A", SlotNumber: intp(15)})
@@ -135,5 +158,26 @@ func TestAssignSlotRejectsTakenSlot(t *testing.T) {
 	db.First(&a, "imei = ?", "IMEI-A")
 	if a.SlotNumber != nil {
 		t.Fatalf("expected unassigned, got %v", *a.SlotNumber)
+	}
+}
+
+func TestAssignSlotMovesCacheOfCurrentSim(t *testing.T) {
+	db := newBayTestDB(t)
+	db.Create(&model.Modem{ICCID: "ICCID-2", IMEI: "IMEI-B", SlotNumber: intp(16)})
+	db.Create(&model.Modem{ICCID: "ICCID-STALE", IMEI: "IMEI-X", SlotNumber: intp(20)})
+	db.Create(&model.ModemBay{IMEI: "IMEI-B", SlotNumber: intp(16), CurrentICCID: "ICCID-2"})
+	repo := NewBayRepository(db)
+	if err := repo.AssignSlot("IMEI-B", intp(20)); err != nil {
+		t.Fatal(err)
+	}
+	var m2 model.Modem
+	db.First(&m2, "iccid = ?", "ICCID-2")
+	if m2.SlotNumber == nil || *m2.SlotNumber != 20 {
+		t.Fatalf("expected ICCID-2 cache = 20, got %v", m2.SlotNumber)
+	}
+	var stale model.Modem
+	db.First(&stale, "iccid = ?", "ICCID-STALE")
+	if stale.SlotNumber != nil {
+		t.Fatalf("expected stale cache cleared, got %v", *stale.SlotNumber)
 	}
 }
