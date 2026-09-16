@@ -133,6 +133,7 @@ func main() {
 	mh := api.NewModemHandler(db, wm, callMgr)
 	bh := api.NewBayHandler(db, wm)
 	balh := api.NewBalanceHandler(db, sched)
+	shh := api.NewSimHealthHandler(db, simHealth)
 	sh := api.NewSMSHandler(db)
 	wh := api.NewWebhookHandler(db)
 	uh := api.NewUserHandler(db)
@@ -160,6 +161,7 @@ func main() {
 			authGroup.GET("/modems", mh.ListModems)
 			authGroup.GET("/bays", bh.List)
 			authGroup.GET("/balance/status", balh.Status)
+			authGroup.GET("/sim-health", shh.Status)
 			authGroup.GET("/slot-events", bh.ListEvents)
 			authGroup.GET("/modems/:iccid", mh.GetModem)
 			authGroup.PUT("/modems/:iccid", mh.UpdateModem)
@@ -191,6 +193,7 @@ func main() {
 				adminGroup.PATCH("/modems/:iccid/profile", mh.UpdateProfile)
 				adminGroup.PATCH("/bays/:imei", bh.Assign)
 				adminGroup.GET("/balance/alerts", balh.Alerts)
+				adminGroup.GET("/sim-health/alerts", shh.Alerts)
 				adminGroup.POST("/balance/run", balh.RunNow)
 				adminGroup.GET("/admin/backup", backupHandler.Download)
 
