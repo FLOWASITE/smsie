@@ -50,6 +50,7 @@ type ModemWorker struct {
 
 	// Data
 	repo           *repository.ModemRepository
+	bayRepo        *repository.BayRepository
 	smsRepo        *repository.SMSRepository
 	webhookService *logic.WebhookService
 	modem          *model.Modem
@@ -97,6 +98,7 @@ func NewModemWorker(portName string, db *gorm.DB, manager *Manager) *ModemWorker
 		stop:            make(chan struct{}),
 		transactionChan: make(chan atTransaction, 10),
 		repo:            repository.NewModemRepository(db),
+		bayRepo:         repository.NewBayRepository(db),
 		smsRepo:         repository.NewSMSRepository(db),
 		webhookService:  logic.NewWebhookService(repository.NewWebhookRepository(db)),
 		manager:         manager,
@@ -322,9 +324,26 @@ func (w *ModemWorker) initModem() {
 			return
 		}
 
-		// 3. Get ICCID
+		isQuectel := strings.Contains(resp, "Quectel")
+
+		// 3. Get IMEI (before ICCID: the bay must be identifiable even with no SIM)
+		var imei string
+		resp, err = w.ExecuteAT("AT+CGSN", 2*time.Second) // or AT+GSN
+		if err == nil {
+			// IMEI is usually just a number line
+			lines := strings.Split(resp, "\n")
+			for _, l := range lines {
+				l = strings.TrimSpace(l)
+				if len(l) > 10 && !strings.Contains(l, "OK") {
+					imei = l
+					break
+				}
+			}
+		}
+
+		// 4. Get ICCID
 		var iccid string
-		if strings.Contains(resp, "Quectel") {
+		if isQuectel {
 			resp, err = w.ExecuteAT("AT+QCCID", 5*time.Second)
 			if err == nil {
 				// Parse +QCCID: <iccid>
@@ -344,6 +363,11 @@ func (w *ModemWorker) initModem() {
 
 		if iccid == "" {
 			logger.Log.Errorf("[%s] Failed to get ICCID", w.PortName)
+			if imei != "" {
+				if err := w.bayRepo.MarkEmpty(imei, w.PortName, time.Now()); err != nil {
+					logger.Log.Warnf("[%s] Failed to mark bay empty: %v", w.PortName, err)
+				}
+			}
 			return
 		}
 
@@ -355,21 +379,6 @@ func (w *ModemWorker) initModem() {
 		}
 
 		logger.Log.Infof("[%s] Found ICCID: %s", w.PortName, iccid)
-
-		// 4. Get IMEI
-		var imei string
-		resp, err = w.ExecuteAT("AT+CGSN", 2*time.Second) // or AT+GSN
-		if err == nil {
-			// IMEI is usually just a number line
-			lines := strings.Split(resp, "\n")
-			for _, l := range lines {
-				l = strings.TrimSpace(l)
-				if len(l) > 10 && !strings.Contains(l, "OK") {
-					imei = l
-					break
-				}
-			}
-		}
 
 		// 5. Get Signal Strength
 		var signal int
@@ -456,9 +465,28 @@ func (w *ModemWorker) initModem() {
 		} else {
 			w.setModem(modem)
 			logger.Log.Infof("Modem registered: %s (%s) Op: %s Sig: %d%%", iccid, w.PortName, operator, signal)
+			events, err := w.bayRepo.Observe(repository.Observation{IMEI: imei, ICCID: iccid, Operator: operator, PortName: w.PortName, At: time.Now()})
+			if err != nil {
+				logger.Log.Warnf("[%s] Slot observe failed: %v", w.PortName, err)
+			}
+			for _, e := range events {
+				logger.Log.Infof("[%s] Slot event %s: %s %v -> %v", w.PortName, e.Event, e.ICCID, derefInt(e.FromSlot), derefInt(e.ToSlot))
+			}
+			if len(events) > 0 {
+				if err := w.RequestBalance(); err != nil {
+					logger.Log.Warnf("[%s] Balance check after slot event failed: %v", w.PortName, err)
+				}
+			}
 		}
 
 	}()
+}
+
+func derefInt(p *int) interface{} {
+	if p == nil {
+		return "-"
+	}
+	return *p
 }
 
 func parseID(resp, prefix string) string {

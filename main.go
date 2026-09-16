@@ -20,6 +20,7 @@ import (
 	"github.com/pccr10001/smsie/internal/config"
 	"github.com/pccr10001/smsie/internal/mccmnc"
 	"github.com/pccr10001/smsie/internal/model"
+	"github.com/pccr10001/smsie/internal/repository"
 	"github.com/pccr10001/smsie/internal/worker"
 	"github.com/pccr10001/smsie/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
@@ -213,6 +214,9 @@ func initDB() *gorm.DB {
 	// Auto Migrate
 	if err := autoMigrateSchema(db); err != nil {
 		logger.Log.Fatalf("Failed to migrate database schema: %v", err)
+	}
+	if err := repository.NewBayRepository(db).MigrateFromModems(); err != nil {
+		logger.Log.Fatalf("Failed to migrate slot numbers to modem bays: %v", err)
 	}
 
 	// Init Admin
