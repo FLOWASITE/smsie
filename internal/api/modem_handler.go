@@ -397,17 +397,12 @@ func (h *ModemHandler) UpdateProfile(c *gin.Context) {
 
 	iccid := strings.TrimSpace(c.Param("iccid"))
 	var req struct {
-		SlotNumber   *int    `json:"slot_number"`
 		PhoneNumber  *string `json:"phone_number"`
 		HardwarePath *string `json:"hardware_path"`
 		BalanceVND   *int64  `json:"balance_vnd"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid profile data"})
-		return
-	}
-	if req.SlotNumber != nil && (*req.SlotNumber < 1 || *req.SlotNumber > 32) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "slot_number must be between 1 and 32"})
 		return
 	}
 	if req.PhoneNumber != nil {
@@ -436,19 +431,8 @@ func (h *ModemHandler) UpdateProfile(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Modem not found"})
 		return
 	}
-	if req.SlotNumber != nil {
-		var conflict int64
-		h.db.Model(&model.Modem{}).Where("iccid <> ? AND slot_number = ?", iccid, *req.SlotNumber).Count(&conflict)
-		if conflict > 0 {
-			c.JSON(http.StatusConflict, gin.H{"error": "slot already assigned to another SIM"})
-			return
-		}
-	}
 
 	updates := map[string]interface{}{}
-	if req.SlotNumber != nil {
-		updates["slot_number"] = *req.SlotNumber
-	}
 	if req.PhoneNumber != nil {
 		updates["phone_number"] = *req.PhoneNumber
 	}

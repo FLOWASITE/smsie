@@ -118,6 +118,7 @@ func main() {
 
 	// Setup Routes
 	mh := api.NewModemHandler(db, wm, callMgr)
+	bh := api.NewBayHandler(db, wm)
 	sh := api.NewSMSHandler(db)
 	wh := api.NewWebhookHandler(db)
 	uh := api.NewUserHandler(db)
@@ -143,6 +144,8 @@ func main() {
 			authGroup.DELETE("/apikeys/:id", akh.DeleteMyAPIKey)
 
 			authGroup.GET("/modems", mh.ListModems)
+			authGroup.GET("/bays", bh.List)
+			authGroup.GET("/slot-events", bh.ListEvents)
 			authGroup.GET("/modems/:iccid", mh.GetModem)
 			authGroup.PUT("/modems/:iccid", mh.UpdateModem)
 			authGroup.POST("/modems/:iccid/scan", mh.ScanNetworks)
@@ -171,6 +174,7 @@ func main() {
 				adminGroup.DELETE("/webhooks/:id", wh.DeleteWebhook)
 				adminGroup.DELETE("/modems/:iccid", mh.DeleteModem)
 				adminGroup.PATCH("/modems/:iccid/profile", mh.UpdateProfile)
+				adminGroup.PATCH("/bays/:imei", bh.Assign)
 				adminGroup.GET("/admin/backup", backupHandler.Download)
 
 				adminGroup.GET("/users", uh.ListUsers)

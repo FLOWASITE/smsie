@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestUpdateModemProfilePersistsSlotPhoneHardwarePathAndBalance(t *testing.T) {
+func TestUpdateModemProfilePersistsPhoneHardwarePathAndBalance(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -29,7 +29,7 @@ func TestUpdateModemProfilePersistsSlotPhoneHardwarePathAndBalance(t *testing.T)
 
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequest(http.MethodPatch, "/api/v1/modems/"+iccid+"/profile", bytes.NewBufferString(`{"slot_number":16,"phone_number":"0924875662","hardware_path":"USB\\VID_04E2&PID_1414\\PORT16","balance_vnd":25000}`))
+	context.Request = httptest.NewRequest(http.MethodPatch, "/api/v1/modems/"+iccid+"/profile", bytes.NewBufferString(`{"phone_number":"0924875662","hardware_path":"USB\\VID_04E2&PID_1414\\PORT16","balance_vnd":25000}`))
 	context.Request.Header.Set("Content-Type", "application/json")
 	context.Params = gin.Params{{Key: "iccid", Value: iccid}}
 	context.Set("user", &model.User{Role: "admin"})
@@ -43,7 +43,7 @@ func TestUpdateModemProfilePersistsSlotPhoneHardwarePathAndBalance(t *testing.T)
 	if err := db.First(&modem, "iccid = ?", iccid).Error; err != nil {
 		t.Fatal(err)
 	}
-	if modem.SlotNumber == nil || *modem.SlotNumber != 16 || modem.PhoneNumber != "0924875662" || modem.HardwarePath == "" || modem.BalanceVND != 25000 {
+	if modem.PhoneNumber != "0924875662" || modem.HardwarePath == "" || modem.BalanceVND != 25000 {
 		t.Fatalf("profile = %#v", modem)
 	}
 }
