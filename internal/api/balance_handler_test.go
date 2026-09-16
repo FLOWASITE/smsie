@@ -25,7 +25,7 @@ func newBalanceHandlerTest(t *testing.T) (*BalanceHandler, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.Modem{}, &model.Webhook{}, &model.UserModemPermission{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Modem{}, &model.ModemBay{}, &model.Webhook{}, &model.UserModemPermission{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()

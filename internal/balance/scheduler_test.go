@@ -19,11 +19,13 @@ func TestEvaluateAlertsOnceAndSkipsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Modem{}, &model.Webhook{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}); err != nil {
+	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.Webhook{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
 	db.Create(&model.Modem{ICCID: "A", PhoneNumber: "0900000001", BalanceVND: 10000, BalanceUpdatedAt: &now})
+	slot7 := 7
+	db.Create(&model.ModemBay{IMEI: "IMEI-A", SlotNumber: &slot7, CurrentICCID: "A"}) // modems.slot_number NULL → lấy từ modem_bays
 	db.Create(&model.Modem{ICCID: "B"})
 	s := NewScheduler(db, worker.NewManager(db), logic.NewWebhookService(repository.NewWebhookRepository(db)),
 		config.BalanceConfig{LowThresholdVND: 20000, ForecastDays: 3})
@@ -43,7 +45,10 @@ func TestEvaluateAlertsOnceAndSkipsUnknown(t *testing.T) {
 	if len(alerts) != 1 || alerts[0].ICCID != "A" || alerts[0].Kind != model.BalanceAlertLow {
 		t.Fatalf("alerts = %+v", alerts)
 	}
-	if got := alertText(items[0]); got != "⚠️ SIM 0900000001: số dư 10.000 đ, dưới ngưỡng 20.000 đ" {
+	if items[0].SlotNumber == nil || *items[0].SlotNumber != 7 {
+		t.Fatalf("slot = %v, want 7 from modem_bays", items[0].SlotNumber)
+	}
+	if got := alertText(items[0]); got != "⚠️ SIM 0900000001 (khe 7): số dư 10.000 đ, dưới ngưỡng 20.000 đ" {
 		t.Fatalf("text = %q", got)
 	}
 }
@@ -53,7 +58,7 @@ func TestEvaluateForecastAlert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Modem{}, &model.Webhook{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}); err != nil {
+	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.Webhook{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()

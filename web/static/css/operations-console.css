@@ -2203,9 +2203,6 @@ body {
   color: #b66b08;
 }
 
-.bay.forecast { border-color: #f3cf8a; }
-.bay.low { border-color: #e8a0a0; }
-
 .bay .dot {
   position: absolute;
   top: 0.55rem;
@@ -2227,6 +2224,10 @@ body {
   border-color: #e8b45a;
   box-shadow: 0 0 0 2px #fbe9c6;
 }
+
+/* Sau .bay.swapped để viền số dư thắng viền đổi khe */
+.bay.forecast { border-color: #f3cf8a; }
+.bay.low { border-color: #e8a0a0; }
 
 .bay .swap {
   position: absolute;

@@ -152,9 +152,24 @@ func (s *Scheduler) collect(write bool) ([]StatusItem, error) {
 	if err := s.db.Order("slot_number, iccid").Find(&modems).Error; err != nil {
 		return nil, err
 	}
+	// Số khe thật nằm ở modem_bays (tray hiệu chuẩn); modems.slot_number chỉ là cache, có thể NULL.
+	var bays []model.ModemBay
+	if err := s.db.Where("current_iccid <> ''").Find(&bays).Error; err != nil {
+		return nil, err
+	}
+	slotByICCID := make(map[string]*int, len(bays))
+	for _, b := range bays {
+		if b.SlotNumber != nil {
+			slotByICCID[b.CurrentICCID] = b.SlotNumber
+		}
+	}
 	cfg := Config{LowThresholdVND: s.cfg.LowThresholdVND, ForecastDays: s.cfg.ForecastDays}
 	out := make([]StatusItem, 0, len(modems))
 	for _, m := range modems {
+		slot := m.SlotNumber
+		if bs, ok := slotByICCID[m.ICCID]; ok {
+			slot = bs
+		}
 		snaps, err := s.repo.RecentSnapshots(m.ICCID, 7)
 		if err != nil {
 			return nil, err
@@ -165,7 +180,7 @@ func (s *Scheduler) collect(write bool) ([]StatusItem, error) {
 		}
 		r := Evaluate(in, cfg)
 		item := StatusItem{
-			ICCID: m.ICCID, PhoneNumber: m.PhoneNumber, SlotNumber: m.SlotNumber,
+			ICCID: m.ICCID, PhoneNumber: m.PhoneNumber, SlotNumber: slot,
 			BalanceVND: m.BalanceVND, BalanceUpdatedAt: m.BalanceUpdatedAt,
 			ThresholdVND: r.ThresholdVND, ThresholdSource: r.ThresholdSource,
 			DaysLeft: r.DaysLeft, Level: r.Level, Snapshots: snaps,
