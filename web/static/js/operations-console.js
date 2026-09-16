@@ -817,7 +817,7 @@ function renderMaintenance() {
             toggle.prop('disabled', true);
             patchModemProfile(modem.iccid, { keepalive_enabled: toggle.prop('checked') }).done(loadOperationsData).fail(function (xhr) {
                 toggle.prop('disabled', false).prop('checked', !!ka.enabled);
-                rule.find('.keepalive-result').text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được công tắc');
+                main.find('.keepalive-result').text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được công tắc');
             });
         });
         const interval = $('<input>').attr({ type: 'number', min: 1, step: 1, placeholder: String(cfg.interval_days ?? ''), 'aria-label': 'Chu kỳ nuôi (ngày)' }).addClass('form-control form-control-sm mono keepalive-interval').val(modem.keepalive_interval ?? '').prop('disabled', !isAdmin);
