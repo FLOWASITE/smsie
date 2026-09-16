@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -199,4 +199,27 @@ test('backup: dung lượng, lịch, poll /ping sau khi khởi động lại', a
     assert.deepEqual(calls, [3000, 2000, 2000]);
     const dead = await waitForRestart(() => false, () => Promise.resolve());
     assert.equal(dead, false);
+});
+
+test('carrierName: MCC/MNC VN → tên nhà mạng, lạ → nguyên mã, rỗng → nhãn trung tính', () => {
+    assert.equal(carrierName('45205'), 'Vietnamobile');
+    assert.equal(carrierName('45204'), 'Viettel');
+    assert.equal(carrierName(' 45201 '), 'Mobifone');
+    assert.equal(carrierName('99999'), '99999');
+    assert.equal(carrierName(''), 'Chưa rõ nhà mạng');
+    assert.equal(carrierName(undefined), 'Chưa rõ nhà mạng');
+});
+
+test('describeKeepaliveRun: pill theo trạng thái lần chạy cuối', () => {
+    assert.deepEqual(describeKeepaliveRun(null), { tone: 'muted', label: '○ Chưa chạy' });
+    assert.deepEqual(describeKeepaliveRun({ status: 'sent', ran_at: '2026-09-12T07:00:00', target_phone: '0924…' }), { tone: 'ok', label: '● Đã gửi 12/09 → 0924…' });
+    assert.deepEqual(describeKeepaliveRun({ status: 'failed', reason: 'modem offline', ran_at: '2026-09-12T07:00:00' }), { tone: 'danger', label: '● Lỗi: modem offline' });
+    assert.deepEqual(describeKeepaliveRun({ status: 'skipped', reason: 'trần tháng', ran_at: '2026-09-12T07:00:00' }), { tone: 'warning', label: '● Bỏ qua: trần tháng' });
+});
+
+test('sortMaintenanceModems: bật trước, theo khe, chưa gán cuối', () => {
+    const modems = [{ iccid: 'a' }, { iccid: 'b' }, { iccid: 'c', keepalive_enabled: true }, { iccid: 'd' }];
+    const ka = { a: { enabled: false }, b: { enabled: true } };
+    const slots = { a: 3, b: 16, d: 1 };
+    assert.deepEqual(sortMaintenanceModems(modems, ka, slots).map(m => m.iccid), ['b', 'c', 'd', 'a']);
 });
