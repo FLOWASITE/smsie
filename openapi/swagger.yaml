@@ -286,6 +286,80 @@ components:
               format: date-time
               nullable: true
 
+    BalanceSnapshot:
+      type: object
+      description: One *101# balance reading, kept for the sparkline and forecast.
+      properties:
+        id:
+          type: integer
+        iccid:
+          type: string
+        balance_vnd:
+          type: integer
+          format: int64
+        read_at:
+          type: string
+          format: date-time
+
+    BalanceStatusItem:
+      type: object
+      description: A SIM evaluated against its balance threshold and recent snapshots.
+      properties:
+        iccid:
+          type: string
+        phone_number:
+          type: string
+        slot_number:
+          type: integer
+          nullable: true
+        balance_vnd:
+          type: integer
+          format: int64
+        balance_updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        threshold_vnd:
+          type: integer
+          format: int64
+        threshold_source:
+          type: string
+          enum: [sim, config]
+          description: "sim = per-SIM low_balance_vnd override, config = balance.low_threshold_vnd default"
+        days_left:
+          type: number
+          nullable: true
+          description: Linear forecast from recent snapshots, days until balance reaches zero.
+        level:
+          type: string
+          enum: [unknown, ok, low, forecast]
+          description: unknown = no balance read yet, low = under threshold, forecast = on track to run out within balance.forecast_days
+        snapshots:
+          type: array
+          items:
+            $ref: "#/components/schemas/BalanceSnapshot"
+
+    BalanceAlert:
+      type: object
+      description: One alert already sent (rate-limited to once per SIM per 24h).
+      properties:
+        id:
+          type: integer
+        iccid:
+          type: string
+        kind:
+          type: string
+          enum: [low, forecast]
+        balance_vnd:
+          type: integer
+          format: int64
+        days_left:
+          type: number
+          nullable: true
+        sent_at:
+          type: string
+          format: date-time
+
     SimSlotEvent:
       type: object
       description: Append-only history row — a SIM (ICCID) inserted into, moved between, or removed from a bay.
@@ -855,6 +929,11 @@ paths:
                 balance_vnd:
                   type: integer
                   format: int64
+                low_balance_vnd:
+                  type: integer
+                  format: int64
+                  nullable: true
+                  description: Per-SIM low-balance threshold override in VND. null resets to the balance.low_threshold_vnd config default.
       responses:
         "200":
           description: Updated modem
@@ -914,6 +993,73 @@ paths:
           description: Modem bay not found
         "409":
           description: slot already assigned to another modem
+
+  /balance/status:
+    get:
+      summary: Balance status for every SIM (threshold, forecast, recent snapshots)
+      description: Evaluates each SIM against its threshold and recent snapshots without recording an alert. Non-admin callers only see SIMs they are allowed to view.
+      responses:
+        "200":
+          description: One item per SIM
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BalanceStatusItem"
+
+  /balance/alerts:
+    get:
+      summary: List balance alerts already sent (Admin only)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+      responses:
+        "200":
+          description: Paginated alert history, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BalanceAlert"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        "403":
+          description: Admin access required
+
+  /balance/run:
+    post:
+      summary: Request an immediate *101# balance read on every eligible SIM (Admin only)
+      description: Requests the USSD read on eligible SIMs synchronously, then evaluates and sends alerts in the background a few seconds later.
+      responses:
+        "202":
+          description: Accepted — number of SIMs the read was requested on
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requested:
+                    type: integer
+        "403":
+          description: Admin access required
 
   /slot-events:
     get:
