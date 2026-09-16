@@ -9,6 +9,7 @@
   - 即時顯示訊號強度、電信商與註冊狀態。
   - 這些狀態屬於執行期資訊，不會作為資料庫的最終真實來源。
 - **SIM 卡槽歷史紀錄**：每個實體卡槽以數據機 IMEI 識別；當某張 SIM（ICCID）出現在不同卡槽時，smsie 會記錄 `inserted / moved / removed` 事件，並附上偵測後立即查詢的 `*101#` 餘額。卡槽編號只需在「Khe SIM → Hiệu chuẩn」校正一次。
+- **餘額警示**：每天在 `balance.check_hour` 時對每張 SIM 查詢一次 `*101#`，保留餘額歷史快照，並以最近幾筆快照做線性回歸，估算餘額歸零前還剩幾天。警示（餘額過低 / 預估將於 `balance.forecast_days` 天內用完）會顯示在「Cảnh báo」頁面，並且每張 SIM 每天最多發送一次到其對應的 Webhook。門檻預設為 `balance.low_threshold_vnd`，也可在數據機設定中針對單一 SIM 覆寫（`low_balance_vnd`）。設定項：`balance.enabled`、`balance.check_hour`、`balance.low_threshold_vnd`、`balance.forecast_days`、`balance.ussd_code`。
 - **SMS 功能**
   - 可分頁、搜尋與檢視收到的簡訊。
   - 支援以 PDU 格式發送簡訊。

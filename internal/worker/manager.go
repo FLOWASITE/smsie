@@ -171,6 +171,19 @@ func isExcluded(port string) bool {
 	return false
 }
 
+// ActiveWorkers trả snapshot các worker chưa dừng (không giữ lock khi caller dùng).
+func (m *Manager) ActiveWorkers() []*ModemWorker {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*ModemWorker, 0, len(m.workers))
+	for _, w := range m.workers {
+		if !w.IsStopped() {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
 func (m *Manager) GetWorkerByICCID(iccid string) *ModemWorker {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

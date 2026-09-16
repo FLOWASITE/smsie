@@ -286,7 +286,7 @@
         }
       }
     </style>
-    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-slots2" />
+    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-balance" />
   </head>
   <body>
     <div id="login-app" class="login-wrap d-none">
@@ -456,7 +456,7 @@
               <div class="ops-panel table-responsive">
                 <div class="ops-panel-head"><h2>Khe ↔ modem</h2><span id="ops-cal-summary" class="ops-list-note"></span></div>
                 <table class="table ops-table align-middle mb-0">
-                  <thead><tr><th>Khe</th><th>IMEI modem</th><th>SIM hiện tại</th><th>Số thuê bao</th><th>Trạng thái</th><th>Lần thấy cuối</th><th></th></tr></thead>
+                  <thead><tr><th>Khe</th><th>IMEI modem</th><th>SIM hiện tại</th><th>Số thuê bao</th><th>Ngưỡng</th><th>Trạng thái</th><th>Lần thấy cuối</th><th></th></tr></thead>
                   <tbody id="ops-cal-body"></tbody>
                 </table>
               </div>
@@ -596,7 +596,11 @@
                 <h1>Trung tâm cảnh báo</h1>
                 <p>Ưu tiên lỗi mất SIM, mất COM, sóng yếu và giao dịch bị kẹt.</p>
               </div>
+              <div class="ops-head-actions">
+                <button id="btn-balance-run" class="btn btn-dark d-none"><i class="bi bi-wallet2"></i> Đọc số dư ngay</button>
+              </div>
             </header>
+            <div id="ops-balance-run-status" class="ops-list-note mb-3" role="status"></div>
             <div id="ops-alert-list" class="alert-center"></div>
           </section>
 
@@ -1079,7 +1083,7 @@
     <script src="/static/js/router.js?v=20260911-calls"></script>
     <script src="/static/js/app.js?v=20260911-calls-v4"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20260916-slots2"></script>
+    <script src="/static/js/operations-console.js?v=20260916-balance"></script>
   </body>
 </html>
 

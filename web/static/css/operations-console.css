@@ -2225,6 +2225,10 @@ body {
   box-shadow: 0 0 0 2px #fbe9c6;
 }
 
+/* Sau .bay.swapped để viền số dư thắng viền đổi khe */
+.bay.forecast { border-color: #f3cf8a; }
+.bay.low { border-color: #e8a0a0; }
+
 .bay .swap {
   position: absolute;
   left: -1px;

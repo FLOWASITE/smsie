@@ -6,6 +6,7 @@
 
 - **Modem Management**: Automatically scans and detects serial modems. Tracks signal strength, operator name, and registration status in real-time (runtime state, not persisted as DB source-of-truth).
 - **SIM slot history**: each physical bay is identified by the modem IMEI; when a SIM (ICCID) shows up in a different bay, smsie records `inserted / moved / removed` events with the `*101#` balance read right after detection. Calibrate bay numbers once under *Khe SIM → Hiệu chuẩn*.
+- **Balance alerts**: reads `*101#` on every SIM once a day at `balance.check_hour`, keeps a balance-snapshot history, and runs a linear forecast over the recent snapshots to estimate the days left until the SIM runs out. Alerts (low balance / forecast to run out within `balance.forecast_days`) show up on the *Cảnh báo* page and are sent to that SIM's webhooks at most once per day. Threshold defaults to `balance.low_threshold_vnd` but can be overridden per SIM (`low_balance_vnd` in the modem profile). Config keys: `balance.enabled`, `balance.check_hour`, `balance.low_threshold_vnd`, `balance.forecast_days`, `balance.ussd_code`.
 - **SMS Operations**:
   - **Read**: View received SMS messages with pagination and search.`
   - **Send**: Send SMS with PDU supported.

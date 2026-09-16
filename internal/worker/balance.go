@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pccr10001/smsie/internal/config"
 	"github.com/pccr10001/smsie/pkg/logger"
 )
 
@@ -49,6 +50,9 @@ func (w *ModemWorker) captureBalance(text string) bool {
 	if err := w.bayRepo.FillBalance(iccid, value, updatedAt); err != nil {
 		logger.Log.Warnf("[%s] Failed to attach balance to slot event: %v", w.PortName, err)
 	}
+	if err := w.balanceRepo.AddSnapshot(iccid, value, updatedAt); err != nil {
+		logger.Log.Warnf("[%s] Failed to store balance snapshot: %v", w.PortName, err)
+	}
 	return true
 }
 
@@ -61,7 +65,11 @@ func (w *ModemWorker) RequestBalance() error {
 	w.balanceRequestedAt = time.Now()
 	w.balanceMu.Unlock()
 
-	if _, err := w.ExecuteATSilent(`AT+CUSD=1,"*101#",15`, 10*time.Second); err != nil {
+	code := config.AppConfig.Balance.USSDCode
+	if code == "" {
+		code = "*101#"
+	}
+	if _, err := w.ExecuteATSilent(`AT+CUSD=1,"`+code+`",15`, 10*time.Second); err != nil {
 		w.balanceMu.Lock()
 		w.balanceRequestedAt = time.Time{}
 		w.balanceMu.Unlock()

@@ -73,3 +73,46 @@ func TestCheckBalanceRejectsOfflineModem(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestUpdateModemProfileLowBalanceVND(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Modem{}); err != nil {
+		t.Fatal(err)
+	}
+	const iccid = "89840509241455299254"
+	if err := db.Create(&model.Modem{ICCID: iccid}).Error; err != nil {
+		t.Fatal(err)
+	}
+	h := NewModemHandler(db, worker.NewManager(db), nil)
+	patch := func(body string) int {
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		context.Request = httptest.NewRequest(http.MethodPatch, "/api/v1/modems/"+iccid+"/profile", bytes.NewBufferString(body))
+		context.Request.Header.Set("Content-Type", "application/json")
+		context.Params = gin.Params{{Key: "iccid", Value: iccid}}
+		context.Set("user", &model.User{Role: "admin"})
+		h.UpdateProfile(context)
+		return recorder.Code
+	}
+	low := func() *int64 {
+		var m model.Modem
+		db.First(&m, "iccid = ?", iccid)
+		return m.LowBalanceVND
+	}
+	if code := patch(`{"low_balance_vnd":15000}`); code != http.StatusOK || low() == nil || *low() != 15000 {
+		t.Fatalf("set: code=%d low=%v", code, low())
+	}
+	if code := patch(`{"phone_number":"0924875662"}`); code != http.StatusOK || low() == nil {
+		t.Fatalf("absent key must keep value: code=%d low=%v", code, low())
+	}
+	if code := patch(`{"low_balance_vnd":-1}`); code != http.StatusBadRequest {
+		t.Fatalf("negative: code=%d", code)
+	}
+	if code := patch(`{"low_balance_vnd":null}`); code != http.StatusOK || low() != nil {
+		t.Fatalf("null must reset to NULL: code=%d low=%v", code, low())
+	}
+}

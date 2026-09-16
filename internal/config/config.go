@@ -15,6 +15,15 @@ type Config struct {
 	Webhook  WebhookConfig  `mapstructure:"webhook"`
 	Users    UsersConfig    `mapstructure:"users"`
 	Log      LogConfig      `mapstructure:"log"`
+	Balance  BalanceConfig  `mapstructure:"balance"`
+}
+
+type BalanceConfig struct {
+	Enabled         bool   `mapstructure:"enabled"`
+	CheckHour       int    `mapstructure:"check_hour"`
+	LowThresholdVND int64  `mapstructure:"low_threshold_vnd"`
+	ForecastDays    int    `mapstructure:"forecast_days"`
+	USSDCode        string `mapstructure:"ussd_code"`
 }
 
 type LogConfig struct {
@@ -86,6 +95,12 @@ func LoadConfig() {
 
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
+	viper.SetDefault("balance.enabled", true)
+	viper.SetDefault("balance.check_hour", 6)
+	viper.SetDefault("balance.low_threshold_vnd", 20000)
+	viper.SetDefault("balance.forecast_days", 7)
+	viper.SetDefault("balance.ussd_code", "*101#")
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file not found, using defaults. Error: %v", err)
