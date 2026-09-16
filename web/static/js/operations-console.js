@@ -844,6 +844,18 @@ function requestKeepaliveRun(item) {
         });
 }
 
+// maintenanceViewFromStorage: 'table' | 'cards' (mặc định thẻ) — thuần, có test node.
+function maintenanceViewFromStorage(raw) {
+    return raw === 'table' ? 'table' : 'cards';
+}
+
+function opsMaintenanceView(next) {
+    try {
+        if (next) localStorage.setItem('smsie_maint_view', next);
+        return maintenanceViewFromStorage(localStorage.getItem('smsie_maint_view'));
+    } catch (e) { return maintenanceViewFromStorage(next); }
+}
+
 function renderMaintenance() {
     const slots = opsSlotByICCID();
     const route = window.currentAppRoute ? window.currentAppRoute() : { view: 'maintenance', iccid: '' };
@@ -878,64 +890,32 @@ function renderMaintenance() {
     const onLine = $('#ops-keepalive-on').toggleClass('d-none', !configOn);
     if (configOn) onLine.find('span').text(`Công tắc tổng đang BẬT · chạy ${runHour} hằng ngày · trần ${cfg.max_per_month ?? '—'} SMS/SIM/tháng`);
 
-    const list = $('#ops-schedule-list').empty();
+    const view = opsMaintenanceView();
+    $('#ops-maint-view button').each(function () {
+        const active = $(this).data('view') === view;
+        $(this).toggleClass('is-active', active).attr('aria-pressed', String(active));
+    });
+    const list = $('#ops-schedule-list').empty().attr('class', view === 'table' ? 'ka-table-wrap' : 'ka-grid');
     const balances = opsBalanceByICCID();
     if (!opsState.modems.length) {
         list.append(opsElement('div', 'ops-empty', 'Chưa có modem để tạo lịch duy trì.'));
         return;
     }
-    sortMaintenanceModems(opsState.modems, keepalive, slots).forEach(modem => {
-        const slot = slots[modem.iccid];
-        const selected = route.iccid === modem.iccid;
-        const ka = keepalive[modem.iccid] || { iccid: modem.iccid, enabled: !!modem.keepalive_enabled };
-        const d = describeKeepalive(ka, Date.now());
-        const card = opsElement('article', `schedule-card ka-card ka-${d.tone}${selected ? ' is-selected' : ''}`);
-        card.attr({ role: 'link', tabindex: '0' })
-            .click(() => window.navigateApp('maintenance', modem.iccid))
-            .on('keydown', event => { if (event.key === 'Enter' && event.target === card[0]) window.navigateApp('maintenance', modem.iccid); });
 
-        // Vùng 1 — định danh
-        const identity = opsElement('div', 'ka-identity');
-        identity.append(opsElement('span', `ka-slot mono${slot ? '' : ' is-empty'}`, slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán'));
-        const phone = opsState.phoneNumbers[modem.iccid];
-        identity.append(opsElement('div', `ka-phone${phone ? '' : ' is-muted'}`, phone || 'Chưa biết số'));
-        const chips = opsElement('div', 'ka-chips');
-        chips.append(opsElement('span', 'ka-chip', carrierName(modem.operator)));
-        if (modem.port_name) chips.append(opsElement('span', 'ka-chip mono', modem.port_name));
-        chips.append(opsElement('span', 'ka-chip mono', `▂▄▆ ${modem.signal_strength || 0}%`));
-        identity.append(chips);
-        identity.append(opsElement('div', 'ka-iccid mono', modem.iccid));
-
-        // Vùng 2 — dữ kiện
-        const main = opsElement('div', 'ka-facts schedule-main');
-        const facts = opsElement('div', 'ka-fact-grid');
-        const fact = (label, value, tone, note) => {
-            const cell = opsElement('div', 'ka-fact');
-            cell.append(opsElement('div', 'ka-fact-label', label));
-            cell.append(opsElement('div', `ka-fact-value mono${tone ? ` tone-${tone}` : ''}`, value));
-            if (note) cell.append(opsElement('div', 'ka-fact-note', note));
-            return cell;
-        };
-        const status = balances[modem.iccid];
-        const level = status ? describeBalanceLevel(status) : null;
-        const balanceCell = fact('Số dư', opsBalanceLabel(modem), level ? level.tone : '', modem.balance_updated_at ? `cập nhật ${opsShortDate(modem.balance_updated_at)}${level ? ` · ${level.label}` : ''}` : (level ? level.label : ''));
-        if (status && (status.snapshots || []).length >= 2) balanceCell.append(opsElement('div', 'ka-fact-note mono', balanceSparkline(status.snapshots)));
-        facts.append(balanceCell);
-        facts.append(fact('Hoạt động gần nhất', ka.last_activity_at ? opsDateTime(ka.last_activity_at) : '—'));
-        facts.append(fact('Lần nuôi kế tiếp', ka.enabled && ka.next_due_at ? opsDateTime(ka.next_due_at) : '—'));
-        facts.append(fact('Tháng này', `${ka.sent_this_month || 0} / ${cfg.max_per_month ?? '—'} SMS`));
-        main.append(facts);
-
-        const rule = opsElement('div', 'schedule-rule keepalive-rule').click(event => event.stopPropagation());
+    // Bộ dựng dùng chung cho cả thẻ lẫn bảng — một chỗ gọi AJAX.
+    const kaSwitch = (modem, ka, result) => {
         const toggleId = `ka-on-${modem.iccid}`;
         const toggle = $('<input>').attr({ type: 'checkbox', id: toggleId, role: 'switch' }).addClass('form-check-input').prop('checked', !!ka.enabled).prop('disabled', !isAdmin);
         toggle.change(function () {
             toggle.prop('disabled', true);
             patchModemProfile(modem.iccid, { keepalive_enabled: toggle.prop('checked') }).done(loadOperationsData).fail(function (xhr) {
                 toggle.prop('disabled', false).prop('checked', !!ka.enabled);
-                card.find('.keepalive-result').text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được công tắc');
+                result.attr('class', 'ops-list-note keepalive-result tone-danger').text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được công tắc');
             });
         });
+        return opsElement('div', 'form-check form-switch keepalive-toggle').append(toggle, opsElement('label', 'form-check-label', 'Nuôi SIM').attr('for', toggleId)).click(event => event.stopPropagation());
+    };
+    const kaIntervalInput = modem => {
         const interval = $('<input>').attr({ type: 'number', min: 1, step: 1, placeholder: String(cfg.interval_days ?? ''), 'aria-label': 'Chu kỳ nuôi (ngày)' }).addClass('form-control form-control-sm mono keepalive-interval').val(modem.keepalive_interval ?? '').prop('disabled', !isAdmin);
         interval.change(function () {
             const value = interval.val().trim();
@@ -943,56 +923,125 @@ function renderMaintenance() {
                 interval.addClass('is-invalid').attr('title', xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được chu kỳ');
             });
         });
+        return interval;
+    };
+    const kaRunPill = ka => {
         const run = describeKeepaliveRun(ka.last_run);
-        rule.append(
-            opsElement('div', 'form-check form-switch keepalive-toggle').append(toggle, opsElement('label', 'form-check-label', 'Nuôi SIM').attr('for', toggleId)),
-            opsElement('span', 'ka-rule-text', 'chu kỳ'), interval, opsElement('span', 'ka-rule-text', `ngày (mặc định ${cfg.interval_days ?? '—'})`),
-            opsElement('span', `ka-run-pill tone-${run.tone}`, run.label)
-        );
-        main.append(rule);
-
-        // Vùng 3 — hành động
-        const controls = opsElement('div', 'schedule-controls ka-actions');
-        const pending = opsState.keepaliveRuns[modem.iccid];
+        return opsElement('span', `ka-run-pill tone-${run.tone}`, run.label).attr('title', run.label);
+    };
+    const kaResult = pending => {
+        let text = '';
+        let tone = 'muted';
+        if (pending && pending.state === 'running') text = 'Đang nuôi…';
+        else if (pending && pending.state === 'error') { text = pending.message; tone = 'danger'; }
+        else if (pending) {
+            text = `Kết quả: ${pending.run.status}${pending.run.reason ? ` · ${pending.run.reason}` : ''}${pending.run.target_phone ? ` → ${pending.run.target_phone}` : ''}`;
+            tone = pending.run.status === 'sent' ? 'ok' : 'danger';
+        }
+        return opsElement('div', `ops-list-note keepalive-result tone-${tone}`, text);
+    };
+    const kaActions = (modem, ka, pending) => {
+        const controls = opsElement('div', 'ka-actions');
+        const online = opsIsOnline(modem);
         if (isAdmin) {
-            const runButton = opsElement('button', 'btn btn-sm ka-run').attr('type', 'button').html('<i class="bi bi-send"></i> Nuôi ngay');
+            const runButton = opsElement('button', 'btn btn-sm ka-run').attr({ type: 'button', 'aria-label': 'Nuôi ngay' }).html('<i class="bi bi-send"></i>');
             runButton.prop('disabled', !configOn || !ka.enabled || !!(pending && pending.state === 'running'))
-                .attr('title', !configOn ? 'Công tắc tổng đang tắt trong config.yaml' : !ka.enabled ? 'Bật "Nuôi SIM" trước' : '')
+                .attr('title', !configOn ? 'Công tắc tổng đang tắt trong config.yaml' : !ka.enabled ? 'Bật "Nuôi SIM" trước' : 'Nuôi ngay')
                 .click(function (event) { event.stopPropagation(); requestKeepaliveRun(ka); });
             controls.append(runButton);
         }
         const check = opsState.balanceChecks[modem.iccid] || {};
-        const balanceButton = opsElement('button', 'btn btn-sm btn-outline-secondary');
-        const buttonLabels = { checking: 'Đang kiểm tra…', timeout: 'Thử kiểm tra lại', error: 'Thử kiểm tra lại', done: 'Kiểm tra lại' };
-        balanceButton.html(`<i class="bi bi-wallet2"></i> ${buttonLabels[check.state] || 'Kiểm tra số dư'}`);
-        balanceButton.attr('type', 'button').prop('disabled', check.state === 'checking' || !opsIsOnline(modem)).click(function (event) {
+        const balanceTitles = { checking: 'Đang kiểm tra…', timeout: 'Thử kiểm tra lại', error: 'Thử kiểm tra lại', done: 'Kiểm tra lại' };
+        const balanceButton = opsElement('button', 'btn btn-sm btn-outline-secondary').attr({ type: 'button', title: balanceTitles[check.state] || 'Kiểm tra số dư', 'aria-label': 'Kiểm tra số dư' }).html('<i class="bi bi-wallet2"></i>');
+        balanceButton.prop('disabled', check.state === 'checking' || !online).click(function (event) {
             event.stopPropagation();
             window.navigateApp('maintenance', modem.iccid);
             requestBalanceCheck(modem);
         });
         controls.append(balanceButton);
+        let note = null;
         if (isAdmin) {
-            const lookup = phoneLookupButton(modem.iccid, opsIsOnline(modem));
+            const lookup = phoneLookupButton(modem.iccid, online);
+            lookup.button.attr('aria-label', 'Đọc số').html('<i class="bi bi-telephone"></i>');
             controls.append(lookup.button);
-            if (lookup.note) controls.append(lookup.note);
+            note = lookup.note;
         }
-        let resultText = '';
-        let resultTone = 'muted';
-        if (pending && pending.state === 'running') resultText = 'Đang nuôi…';
-        else if (pending && pending.state === 'error') { resultText = pending.message; resultTone = 'danger'; }
-        else if (pending) {
-            resultText = `Kết quả: ${pending.run.status}${pending.run.reason ? ` · ${pending.run.reason}` : ''}${pending.run.target_phone ? ` → ${pending.run.target_phone}` : ''}`;
-            resultTone = pending.run.status === 'sent' ? 'ok' : 'danger';
-        }
-        controls.append(opsElement('div', `ops-list-note keepalive-result tone-${resultTone}`, resultText));
+        return { controls, note };
+    };
 
-        card.append(identity, main, controls);
-        list.append(card);
-
+    const sorted = sortMaintenanceModems(opsState.modems, keepalive, slots);
+    const rowOf = modem => {
+        const ka = keepalive[modem.iccid] || { iccid: modem.iccid, enabled: !!modem.keepalive_enabled };
+        const status = balances[modem.iccid];
+        return { ka, d: describeKeepalive(ka, Date.now()), slot: slots[modem.iccid], phone: opsState.phoneNumbers[modem.iccid], level: status ? describeBalanceLevel(status) : null, pending: opsState.keepaliveRuns[modem.iccid], selected: route.iccid === modem.iccid };
+    };
+    const slotPill = slot => opsElement('span', `ka-slot mono${slot ? '' : ' is-empty'}`, slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán');
+    const autoCheck = (modem, selected) => {
         const shouldAutoCheck = route.view === 'maintenance' && (selected || (opsState.modems.length === 1 && !route.iccid));
-        if (shouldAutoCheck && balanceNeedsRefresh(modem) && !opsState.balanceChecks[modem.iccid] && opsIsOnline(modem)) {
-            requestBalanceCheck(modem);
-        }
+        if (shouldAutoCheck && balanceNeedsRefresh(modem) && !opsState.balanceChecks[modem.iccid] && opsIsOnline(modem)) requestBalanceCheck(modem);
+    };
+
+    if (view === 'table') {
+        const panel = opsElement('div', 'ops-panel table-responsive');
+        const table = opsElement('table', 'table ops-table align-middle mb-0 ka-table');
+        const head = $('<tr>');
+        ['Khe', 'Số thuê bao', 'Nhà mạng', 'COM', 'Sóng', 'Số dư', 'Hoạt động gần nhất', 'Lần nuôi kế tiếp', 'Tháng này', 'Nuôi', 'Chu kỳ', 'Lần chạy cuối', 'Thao tác'].forEach(label => head.append(opsElement('th', '', label)));
+        table.append($('<thead>').append(head));
+        const body = $('<tbody>');
+        sorted.forEach(modem => {
+            const r = rowOf(modem);
+            const tr = opsElement('tr', `ka-row ka-${r.d.tone}${r.selected ? ' is-selected' : ''}`);
+            const td = (content, cls) => { const cell = opsElement('td', cls || ''); return typeof content === 'string' ? cell.text(content) : cell.append(content); };
+            const result = kaResult(r.pending);
+            const actions = kaActions(modem, r.ka, r.pending);
+            tr.append(
+                td(slotPill(r.slot)),
+                td(r.phone || 'Chưa biết số', r.phone ? 'mono ka-cell-phone' : 'text-muted'),
+                td(carrierName(modem.operator)),
+                td(modem.port_name || '—', 'mono'),
+                td(`${modem.signal_strength || 0}%`, 'mono'),
+                td(opsBalanceLabel(modem), `mono${r.level ? ` tone-${r.level.tone}` : ''}`).attr('title', modem.balance_updated_at ? `cập nhật ${opsShortDate(modem.balance_updated_at)}${r.level ? ` · ${r.level.label}` : ''}` : ''),
+                td(r.ka.last_activity_at ? opsDateTime(r.ka.last_activity_at) : '—', 'mono'),
+                td(r.ka.enabled && r.ka.next_due_at ? opsDateTime(r.ka.next_due_at) : '—', 'mono'),
+                td(`${r.ka.sent_this_month || 0} / ${cfg.max_per_month ?? '—'}`, 'mono'),
+                td(kaSwitch(modem, r.ka, result)),
+                td(kaIntervalInput(modem)),
+                td(kaRunPill(r.ka)),
+                td([actions.controls, result, actions.note].filter(Boolean), 'ka-cell-actions')
+            );
+            body.append(tr);
+            autoCheck(modem, r.selected);
+        });
+        table.append(body);
+        list.append(panel.append(table));
+        return;
+    }
+
+    sorted.forEach(modem => {
+        const r = rowOf(modem);
+        const card = opsElement('article', `ka-card ka-${r.d.tone}${r.selected ? ' is-selected' : ''}`);
+        card.attr({ role: 'link', tabindex: '0' })
+            .click(() => window.navigateApp('maintenance', modem.iccid))
+            .on('keydown', event => { if (event.key === 'Enter' && event.target === card[0]) window.navigateApp('maintenance', modem.iccid); });
+        const top = opsElement('div', 'ka-top');
+        top.append(slotPill(r.slot), opsElement('span', 'ka-chip', carrierName(modem.operator)));
+        if (modem.port_name) top.append(opsElement('span', 'ka-chip mono', modem.port_name));
+        top.append(opsElement('span', 'ka-signal mono', `▂▄▆ ${modem.signal_strength || 0}%`));
+        card.append(top);
+        card.append(opsElement('div', `ka-phone${r.phone ? '' : ' is-muted'}`, r.phone || 'Chưa biết số'));
+        const facts = opsElement('div', 'ka-facts');
+        const fact = (label, value, tone) => opsElement('div', 'ka-fact').append(opsElement('span', 'ka-fact-label', label), opsElement('span', `ka-fact-value mono${tone ? ` tone-${tone}` : ''}`, value));
+        facts.append(fact('Số dư', opsBalanceLabel(modem), r.level ? r.level.tone : ''));
+        facts.append(fact('Nuôi kế tiếp', r.ka.enabled && r.ka.next_due_at ? opsShortDate(r.ka.next_due_at) : '—'));
+        if (modem.keepalive_interval) facts.append(fact('Chu kỳ', `${modem.keepalive_interval} ngày`));
+        card.append(facts);
+        const result = kaResult(r.pending);
+        const actions = kaActions(modem, r.ka, r.pending);
+        card.append(opsElement('div', 'ka-rule').append(kaSwitch(modem, r.ka, result), kaRunPill(r.ka)));
+        card.append(opsElement('div', 'ka-foot').append(actions.note || opsElement('span'), actions.controls));
+        card.append(result);
+        list.append(card);
+        autoCheck(modem, r.selected);
     });
 }
 
@@ -1386,7 +1435,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, maintenanceViewFromStorage, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
@@ -1412,6 +1461,7 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         const view = $(this).data('open-view');
         window.navigateApp(view);
     });
+    $('#ops-maint-view button').click(function () { opsMaintenanceView($(this).data('view')); renderMaintenance(); });
     $('#audit-username, #audit-action, #audit-from, #audit-to').on('change', function () { opsState.auditPage = 1; loadAudit(); });
     $('#audit-prev').click(function () { opsState.auditPage = Math.max(1, (opsState.auditPage || 1) - 1); loadAudit(); });
     $('#audit-next').click(function () { opsState.auditPage = (opsState.auditPage || 1) + 1; loadAudit(); });

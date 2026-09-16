@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, maintenanceViewFromStorage, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -222,4 +222,11 @@ test('sortMaintenanceModems: bật trước, theo khe, chưa gán cuối', () =>
     const ka = { a: { enabled: false }, b: { enabled: true } };
     const slots = { a: 3, b: 16, d: 1 };
     assert.deepEqual(sortMaintenanceModems(modems, ka, slots).map(m => m.iccid), ['b', 'c', 'd', 'a']);
+});
+
+test('maintenanceViewFromStorage: chỉ nhận table, còn lại về thẻ', () => {
+    assert.equal(maintenanceViewFromStorage('table'), 'table');
+    assert.equal(maintenanceViewFromStorage('cards'), 'cards');
+    assert.equal(maintenanceViewFromStorage(null), 'cards');
+    assert.equal(maintenanceViewFromStorage('rác'), 'cards');
 });
