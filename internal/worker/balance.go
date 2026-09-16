@@ -13,7 +13,7 @@ import (
 
 var (
 	ErrBalanceCheckInProgress = errors.New("balance check already requested")
-	balancePattern            = regexp.MustCompile(`(?:tk chinh|tai khoan chinh)\s*:\s*([0-9][0-9., ]*)\s*(?:d|vnd)`)
+	balancePattern            = regexp.MustCompile(`(?:tk chinh|tai khoan chinh|tkc)\s*:\s*([0-9][0-9., ]*)\s*(?:d|vnd)`)
 )
 
 func parseBalanceVND(text string) (int64, bool) {
@@ -65,7 +65,13 @@ func (w *ModemWorker) RequestBalance() error {
 	w.balanceRequestedAt = time.Now()
 	w.balanceMu.Unlock()
 
-	code := config.AppConfig.Balance.USSDCode
+	code := ""
+	if modem, ok := w.modemSnapshot(); ok {
+		code = lookupCodeFor(modem.Operator, config.AppConfig.Balance.USSDCodes)
+	}
+	if code == "" {
+		code = config.AppConfig.Balance.USSDCode
+	}
 	if code == "" {
 		code = "*101#"
 	}

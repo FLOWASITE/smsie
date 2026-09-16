@@ -20,6 +20,11 @@ func TestParseBalanceVNDFromVietnamobileResponse(t *testing.T) {
 			t.Fatalf("parseBalanceVND(%q) = %d, %v; want 20735, true", input, got, ok)
 		}
 	}
+	// *102# Vietnamobile: số thuê bao + TKC trong cùng một tin (đọc thật 16/09/2026)
+	got, ok := parseBalanceVND(`+CUSD: 1,"Xin chao 0924914356 TKC: 15.002d Du Lieu: 100,0MB 1. Goi cuoc Thoai & SMS",15`)
+	if !ok || got != 15002 {
+		t.Fatalf("parseBalanceVND(TKC) = %d, %v; want 15002, true", got, ok)
+	}
 }
 
 func TestBalanceResponsePersistsAgainstICCID(t *testing.T) {

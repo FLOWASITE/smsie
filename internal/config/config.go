@@ -60,11 +60,12 @@ type SimHealthConfig struct {
 }
 
 type BalanceConfig struct {
-	Enabled         bool   `mapstructure:"enabled"`
-	CheckHour       int    `mapstructure:"check_hour"`
-	LowThresholdVND int64  `mapstructure:"low_threshold_vnd"`
-	ForecastDays    int    `mapstructure:"forecast_days"`
-	USSDCode        string `mapstructure:"ussd_code"`
+	Enabled         bool              `mapstructure:"enabled"`
+	CheckHour       int               `mapstructure:"check_hour"`
+	LowThresholdVND int64             `mapstructure:"low_threshold_vnd"`
+	ForecastDays    int               `mapstructure:"forecast_days"`
+	USSDCode        string            `mapstructure:"ussd_code"`
+	USSDCodes       map[string]string `mapstructure:"ussd_codes"` // theo nhà mạng, ưu tiên hơn ussd_code
 }
 
 type LogConfig struct {
@@ -142,6 +143,7 @@ func LoadConfig() {
 	viper.SetDefault("balance.low_threshold_vnd", 20000)
 	viper.SetDefault("balance.forecast_days", 7)
 	viper.SetDefault("balance.ussd_code", "*101#")
+	viper.SetDefault("balance.ussd_codes", map[string]string{"Vietnamobile": "*102#"})
 	viper.SetDefault("sim_health.enabled", true)
 	viper.SetDefault("sim_health.no_sms_days", 30)
 	viper.SetDefault("sim_health.unregistered_hours", 24)
