@@ -150,18 +150,36 @@ func ApplyPending(dsn, dir string) (bool, error) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return false, err
 		}
-		if err := copyFile(dsn, filepath.Join(dir, "pre-restore-"+time.Now().Format(stamp)+".db")); err != nil {
+		if err := snapshot(dsn, filepath.Join(dir, "pre-restore-"+time.Now().Format(stamp)+".db")); err != nil {
 			return false, err
 		}
+	}
+	// WAL/journal cũ thuộc DB cũ (đã gom vào pre-restore ở trên); xoá TRƯỚC khi đổi tên, nếu
+	// không crash giữa chừng sẽ để chúng áp nhầm lên DB mới.
+	for _, suf := range []string{"-wal", "-shm", "-journal"} {
+		os.Remove(dsn + suf)
 	}
 	if err := os.Rename(stage, dsn); err != nil {
 		return false, err
 	}
-	// WAL/journal cũ thuộc DB cũ, để lại sẽ áp nhầm lên DB mới.
-	for _, suf := range []string{"-wal", "-shm", "-journal"} {
-		os.Remove(dsn + suf)
-	}
 	return true, nil
+}
+
+// snapshot: mở DB cũ bằng driver sqlite rồi VACUUM INTO — gom cả WAL/hot journal chưa checkpoint
+// (os.Exit(3) sau restore không đóng DB êm). DB cũ hỏng tới mức không mở được → chép thô.
+func snapshot(src, dst string) error {
+	db, err := gorm.Open(sqlite.Open(src), &gorm.Config{Logger: gormlogger.Discard})
+	if err == nil {
+		err = db.Exec("VACUUM INTO '" + strings.ReplaceAll(dst, "'", "''") + "'").Error
+		if sqlDB, e := db.DB(); e == nil {
+			sqlDB.Close()
+		}
+		if err == nil {
+			return nil
+		}
+		os.Remove(dst)
+	}
+	return copyFile(src, dst)
 }
 
 func copyFile(src, dst string) error {

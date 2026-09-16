@@ -116,3 +116,43 @@ func TestApplyPending(t *testing.T) {
 	}
 	closeDB(db)
 }
+
+// DB cũ có dòng chỉ nằm trong WAL (chưa checkpoint, như sau os.Exit(3)): pre-restore phải có dòng đó
+// và WAL cũ không được sống sót cạnh DB mới.
+func TestApplyPendingKeepsUncheckpointedWAL(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "src.db")
+	db, err := gorm.Open(sqlite.Open(src), &gorm.Config{Logger: gormlogger.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Exec("PRAGMA journal_mode=WAL")
+	db.Exec("CREATE TABLE cu (id INTEGER PRIMARY KEY, v TEXT)")
+	db.Exec("INSERT INTO cu (v) VALUES ('trong-wal')")
+	dsn := filepath.Join(tmp, "live.db")
+	for _, suf := range []string{"", "-wal"} { // chụp trạng thái "crash": main + WAL, trước khi đóng
+		if err := copyFile(src+suf, dsn+suf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	closeDB(db)
+	closeDB(openDB(t, StagePath(dsn), "moi"))
+	dir := filepath.Join(tmp, "backups")
+	if ok, err := ApplyPending(dsn, dir); !ok || err != nil {
+		t.Fatalf("apply: %v %v", ok, err)
+	}
+	if _, err := os.Stat(dsn + "-wal"); err == nil {
+		t.Fatal("WAL cũ phải bị xoá")
+	}
+	pre := List(dir)
+	if len(pre) != 1 {
+		t.Fatalf("pre-restore: %+v", pre)
+	}
+	db, _ = gorm.Open(sqlite.Open(filepath.Join(dir, pre[0].Name)), &gorm.Config{Logger: gormlogger.Discard})
+	var v string
+	db.Raw("SELECT v FROM cu").Scan(&v)
+	closeDB(db)
+	if v != "trong-wal" {
+		t.Fatalf("pre-restore thiếu dòng trong WAL: %q", v)
+	}
+}
