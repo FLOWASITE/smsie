@@ -426,6 +426,67 @@ components:
           type: string
           format: date-time
 
+    KeepaliveItem:
+      type: object
+      description: One SIM evaluated for keep-alive (nuôi SIM). Nothing is sent unless both keepalive.enabled (config) and enabled (per-SIM) are true.
+      properties:
+        iccid:
+          type: string
+        phone_number:
+          type: string
+        slot_number:
+          type: integer
+          nullable: true
+        enabled:
+          type: boolean
+          description: Per-SIM opt-in (modem profile keepalive_enabled)
+        interval_days:
+          type: integer
+          description: Effective interval — per-SIM keepalive_interval or keepalive.interval_days
+        last_activity_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last sent/received SMS on this SIM (first_seen when none)
+        next_due_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: last_activity_at + interval_days
+        sent_this_month:
+          type: integer
+          description: Keep-alive SMS sent in the current calendar month (capped by keepalive.max_per_month)
+        last_run:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/KeepaliveRun"
+        online:
+          type: boolean
+          description: Modem currently online at runtime
+
+    KeepaliveRun:
+      type: object
+      description: Append-only log row — one keep-alive attempt for a SIM.
+      properties:
+        id:
+          type: integer
+        iccid:
+          type: string
+        target_iccid:
+          type: string
+          description: The other SIM in the tray (same operator) that received the SMS
+        target_phone:
+          type: string
+        status:
+          type: string
+          enum: [sent, failed, skipped]
+          description: skipped = monthly cap reached, no target SIM, modem offline, ...
+        reason:
+          type: string
+        ran_at:
+          type: string
+          format: date-time
+
     SimSlotEvent:
       type: object
       description: Append-only history row — a SIM (ICCID) inserted into, moved between, or removed from a bay.
@@ -1000,6 +1061,14 @@ paths:
                   format: int64
                   nullable: true
                   description: Per-SIM low-balance threshold override in VND. null resets to the balance.low_threshold_vnd config default.
+                keepalive_enabled:
+                  type: boolean
+                  description: Per-SIM opt-in for keep-alive SMS. Nothing is sent unless keepalive.enabled is also true in config.yaml.
+                keepalive_interval:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+                  description: Per-SIM keep-alive interval in days. null resets to the keepalive.interval_days config default.
       responses:
         "200":
           description: Updated modem
@@ -1176,6 +1245,114 @@ paths:
                     type: integer
         "403":
           description: Admin access required
+
+  /keepalive/status:
+    get:
+      summary: Keep-alive (nuôi SIM) status for every SIM
+      description: Global keep-alive config plus one item per SIM (opt-in flag, effective interval, last activity, next due date, sends this month, last run). Nothing is recorded. Non-admin callers only see SIMs they are allowed to view.
+      responses:
+        "200":
+          description: Config and one item per SIM
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        description: keepalive.enabled from config.yaml — when false nothing is ever sent
+                      run_hour:
+                        type: integer
+                      interval_days:
+                        type: integer
+                      max_per_month:
+                        type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KeepaliveItem"
+
+  /keepalive/runs:
+    get:
+      summary: List keep-alive runs (Admin only)
+      parameters:
+        - name: iccid
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+      responses:
+        "200":
+          description: Paginated run history, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KeepaliveRun"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        "403":
+          description: Admin access required
+
+  /keepalive/run:
+    post:
+      summary: Send a keep-alive SMS now (Admin only)
+      description: With iccid — runs that SIM synchronously, ignoring the interval but still honouring max_per_month, and returns the run. Without iccid — runs the whole tray in the background following the normal rules. Sends a PAID intra-network SMS; refused with 409 while keepalive.enabled is false.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                iccid:
+                  type: string
+                  description: Optional; omit to run every opted-in SIM
+      responses:
+        "200":
+          description: Run result for the given SIM
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeepaliveRun"
+        "202":
+          description: Accepted — whole-tray run started in the background
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  started:
+                    type: boolean
+        "400":
+          description: SIM is not opted in / not eligible
+        "403":
+          description: Admin access required
+        "404":
+          description: Modem not found
+        "409":
+          description: keepalive.enabled is false in config.yaml
 
   /slot-events:
     get:

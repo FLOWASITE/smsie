@@ -2406,3 +2406,35 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .bay { transition: none; }
 }
+
+.ops-banner {
+  margin-bottom: 1rem;
+  padding: 0.7rem 0.9rem;
+  color: #873a3a;
+  background: #f4dede;
+  border-left: 3px solid var(--ops-danger);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.keepalive-rule {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.keepalive-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+.keepalive-interval {
+  width: 4.5rem;
+}
+
+.keepalive-result:empty { display: none; }
+.keepalive-result.tone-ok { color: #216147; }
+.keepalive-result.tone-danger { color: var(--ops-danger); }

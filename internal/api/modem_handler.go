@@ -420,6 +420,24 @@ func (h *ModemHandler) UpdateProfile(c *gin.Context) {
 		}
 		low = &v
 	}
+	kaEnabledRaw, hasKaEnabled := raw["keepalive_enabled"]
+	var kaEnabled bool
+	if hasKaEnabled {
+		if err := json.Unmarshal(kaEnabledRaw, &kaEnabled); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "keepalive_enabled must be a boolean"})
+			return
+		}
+	}
+	kaIntervalRaw, hasKaInterval := raw["keepalive_interval"]
+	var kaInterval *int
+	if hasKaInterval && string(kaIntervalRaw) != "null" {
+		var v int
+		if err := json.Unmarshal(kaIntervalRaw, &v); err != nil || v < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "keepalive_interval must be an integer >= 1"})
+			return
+		}
+		kaInterval = &v
+	}
 	if req.PhoneNumber != nil {
 		phone := strings.TrimSpace(*req.PhoneNumber)
 		if phone != "" && !phoneNumberPattern.MatchString(phone) {
@@ -460,6 +478,12 @@ func (h *ModemHandler) UpdateProfile(c *gin.Context) {
 	}
 	if hasLow {
 		updates["low_balance_vnd"] = low
+	}
+	if hasKaEnabled {
+		updates["keepalive_enabled"] = kaEnabled
+	}
+	if hasKaInterval {
+		updates["keepalive_interval"] = kaInterval
 	}
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No profile fields supplied"})

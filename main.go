@@ -17,6 +17,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/pccr10001/smsie/internal/api"
 	"github.com/pccr10001/smsie/internal/balance"
+	"github.com/pccr10001/smsie/internal/keepalive"
 	"github.com/pccr10001/smsie/internal/calling"
 	"github.com/pccr10001/smsie/internal/config"
 	"github.com/pccr10001/smsie/internal/logic"
@@ -119,6 +120,8 @@ func main() {
 	schedStop := make(chan struct{})
 	defer close(schedStop)
 	go sched.Run(schedStop)
+	ks := keepalive.NewService(db, wm, nil, webhookSvc, config.AppConfig.Keepalive)
+	go ks.Run(schedStop)
 
 	// 6. Start Server
 	// Load Templates
@@ -133,6 +136,7 @@ func main() {
 	mh := api.NewModemHandler(db, wm, callMgr)
 	bh := api.NewBayHandler(db, wm)
 	balh := api.NewBalanceHandler(db, sched)
+	kah := api.NewKeepaliveHandler(db, ks)
 	shh := api.NewSimHealthHandler(db, simHealth)
 	sh := api.NewSMSHandler(db)
 	wh := api.NewWebhookHandler(db)
@@ -162,6 +166,7 @@ func main() {
 			authGroup.GET("/bays", bh.List)
 			authGroup.GET("/balance/status", balh.Status)
 			authGroup.GET("/sim-health", shh.Status)
+			authGroup.GET("/keepalive/status", kah.Status)
 			authGroup.GET("/slot-events", bh.ListEvents)
 			authGroup.GET("/modems/:iccid", mh.GetModem)
 			authGroup.PUT("/modems/:iccid", mh.UpdateModem)
@@ -195,6 +200,8 @@ func main() {
 				adminGroup.GET("/balance/alerts", balh.Alerts)
 				adminGroup.GET("/sim-health/alerts", shh.Alerts)
 				adminGroup.POST("/balance/run", balh.RunNow)
+				adminGroup.GET("/keepalive/runs", kah.Runs)
+				adminGroup.POST("/keepalive/run", kah.RunNow)
 				adminGroup.GET("/admin/backup", backupHandler.Download)
 
 				adminGroup.GET("/users", uh.ListUsers)
@@ -289,7 +296,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {

@@ -58,6 +58,8 @@ type Modem struct {
 	LowBalanceVND     *int64     `gorm:"column:low_balance_vnd" json:"low_balance_vnd,omitempty"` // ngưỡng riêng, nil = dùng config
 	LastRegisteredAt  *time.Time `gorm:"column:last_registered_at" json:"last_registered_at,omitempty"`
 	FirstSeenAt       *time.Time `gorm:"column:first_seen_at" json:"first_seen_at,omitempty"`
+	KeepaliveEnabled  bool       `gorm:"column:keepalive_enabled;not null;default:false" json:"keepalive_enabled"`
+	KeepaliveInterval *int       `gorm:"column:keepalive_interval" json:"keepalive_interval,omitempty"` // chu kỳ ngày riêng, nil = dùng config
 	SIPEnabled        bool       `gorm:"column:sip_enabled" json:"sip_enabled"`
 	SIPUsername       string     `gorm:"column:sip_username" json:"sip_username,omitempty"`
 	SIPPassword       string     `gorm:"column:sip_password" json:"-"`
@@ -172,6 +174,7 @@ const (
 	SimAlertNoSMS        = "no_sms"
 	SimAlertUnregistered = "unregistered"
 	SimAlertAbsent       = "absent"
+	SimAlertKeepalive    = "keepalive"
 )
 
 // SimAlert ghi lại mỗi lần đã cảnh báo SIM "chết" (nhắc lại theo remind_days).
@@ -181,4 +184,21 @@ type SimAlert struct {
 	Kind   string    `gorm:"size:16;index" json:"kind"`
 	Detail string    `gorm:"size:255" json:"detail"`
 	SentAt time.Time `gorm:"index" json:"sent_at"`
+}
+
+const (
+	KeepaliveSent    = "sent"
+	KeepaliveFailed  = "failed"
+	KeepaliveSkipped = "skipped"
+)
+
+// KeepaliveRun — nhật ký nuôi SIM, append-only.
+type KeepaliveRun struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	ICCID       string    `gorm:"column:iccid;size:32;index" json:"iccid"`
+	TargetICCID string    `gorm:"column:target_iccid;size:32;index" json:"target_iccid,omitempty"`
+	TargetPhone string    `gorm:"size:20" json:"target_phone,omitempty"`
+	Status      string    `gorm:"size:16;index" json:"status"`
+	Reason      string    `gorm:"size:255" json:"reason,omitempty"`
+	RanAt       time.Time `gorm:"index" json:"ran_at"`
 }

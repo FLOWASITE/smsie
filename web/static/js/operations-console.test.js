@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -125,4 +125,18 @@ test('balanceSparkline joins up to 7 snapshots in thousands', () => {
     assert.equal(balanceSparkline([]), '');
     assert.equal(balanceSparkline(undefined), '');
     assert.equal(balanceSparkline(Array.from({ length: 9 }, (_, i) => ({ balance_vnd: (i + 1) * 1000 }))), '3k → 4k → 5k → 6k → 7k → 8k → 9k');
+});
+
+test('describeKeepalive: tắt → muted; failed/skipped ≤7 ngày → danger/warning kèm lý do; bật → ngày kế tiếp', () => {
+    const now = new Date('2026-09-16T10:00:00').getTime();
+    assert.deepEqual(describeKeepalive({ enabled: false, next_due_at: '2026-10-01T00:00:00Z' }, now), { tone: 'muted', label: 'Tắt' });
+    assert.deepEqual(describeKeepalive({ enabled: true, last_run: { status: 'failed', reason: 'modem offline', ran_at: '2026-09-15T07:00:00Z' } }, now), { tone: 'danger', label: 'Nuôi SIM failed: modem offline' });
+    assert.deepEqual(describeKeepalive({ enabled: true, last_run: { status: 'skipped', reason: 'không có SIM đích', ran_at: '2026-09-12T07:00:00Z' } }, now), { tone: 'warning', label: 'Nuôi SIM skipped: không có SIM đích' });
+    // failed nhưng đã quá 7 ngày → không cảnh báo nữa, hiện lần kế tiếp
+    assert.deepEqual(describeKeepalive({ enabled: true, next_due_at: '2026-10-05T07:00:00', last_run: { status: 'failed', reason: 'modem offline', ran_at: '2026-09-01T07:00:00Z' } }, now), { tone: 'ok', label: 'Lần kế tiếp 05/10' });
+});
+
+test('keepaliveNextRun: run_hour hôm nay nếu chưa qua, ngày mai nếu đã qua', () => {
+    assert.equal(keepaliveNextRun(7, new Date('2026-09-16T05:30:00').getTime()).getTime(), new Date('2026-09-16T07:00:00').getTime());
+    assert.equal(keepaliveNextRun(7, new Date('2026-09-16T07:00:00').getTime()).getTime(), new Date('2026-09-17T07:00:00').getTime());
 });

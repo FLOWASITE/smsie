@@ -116,3 +116,49 @@ func TestUpdateModemProfileLowBalanceVND(t *testing.T) {
 		t.Fatalf("null must reset to NULL: code=%d low=%v", code, low())
 	}
 }
+
+func TestUpdateModemProfileKeepalive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Modem{}); err != nil {
+		t.Fatal(err)
+	}
+	const iccid = "89840509241455299254"
+	if err := db.Create(&model.Modem{ICCID: iccid}).Error; err != nil {
+		t.Fatal(err)
+	}
+	h := NewModemHandler(db, worker.NewManager(db), nil)
+	patch := func(body string) int {
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		context.Request = httptest.NewRequest(http.MethodPatch, "/api/v1/modems/"+iccid+"/profile", bytes.NewBufferString(body))
+		context.Request.Header.Set("Content-Type", "application/json")
+		context.Params = gin.Params{{Key: "iccid", Value: iccid}}
+		context.Set("user", &model.User{Role: "admin"})
+		h.UpdateProfile(context)
+		return recorder.Code
+	}
+	get := func() model.Modem {
+		var m model.Modem
+		db.First(&m, "iccid = ?", iccid)
+		return m
+	}
+	if code := patch(`{"keepalive_enabled":true,"keepalive_interval":10}`); code != http.StatusOK || !get().KeepaliveEnabled || get().KeepaliveInterval == nil || *get().KeepaliveInterval != 10 {
+		t.Fatalf("set: code=%d m=%+v", code, get())
+	}
+	if code := patch(`{"phone_number":"0924875662"}`); code != http.StatusOK || !get().KeepaliveEnabled || get().KeepaliveInterval == nil {
+		t.Fatalf("absent keys must keep values: code=%d m=%+v", code, get())
+	}
+	if code := patch(`{"keepalive_interval":0}`); code != http.StatusBadRequest {
+		t.Fatalf("interval 0: code=%d", code)
+	}
+	if code := patch(`{"keepalive_enabled":"yes"}`); code != http.StatusBadRequest {
+		t.Fatalf("enabled non-bool: code=%d", code)
+	}
+	if code := patch(`{"keepalive_enabled":false,"keepalive_interval":null}`); code != http.StatusOK || get().KeepaliveEnabled || get().KeepaliveInterval != nil {
+		t.Fatalf("reset: code=%d m=%+v", code, get())
+	}
+}
