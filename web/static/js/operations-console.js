@@ -879,7 +879,7 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         const rows = [['detected_at', 'event', 'iccid', 'imei', 'phone_number', 'from_slot', 'to_slot', 'balance_vnd', 'port_name']];
         opsState.slotEvents.forEach(e => rows.push([e.detected_at, e.event, e.iccid, e.imei, e.phone_number || '', e.from_slot ?? '', e.to_slot ?? '', e.balance_vnd ?? '', e.port_name || '']));
         const csv = rows.map(r => r.map(v => `"${String(v).replaceAll('"', '""')}"`).join(',')).join('\r\n');
-        const url = URL.createObjectURL(new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' }));
+        const url = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }));
         const link = document.createElement('a');
         link.href = url;
         link.download = `smsie-slot-events-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -936,6 +936,12 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         if (route.view === 'slots' && route.iccid) {
             showSlotTab('history');
             loadSlotEvents(route.iccid);
+        }
+        if (route.view === 'audit') {
+            $.get('/api/v1/slot-events', { page_size: 200 }).done(function (response) {
+                opsState.slotEvents = response.data || [];
+                renderAuditPreview();
+            });
         }
     });
     if (auth.username && ['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(window.currentAppRoute().view)) {
