@@ -56,7 +56,7 @@ Tuyệt đối không gửi khi `enabled=false` ở bất kỳ tầng nào; API 
 
 ## API
 
-- `GET /api/v1/keepalive/status` — mọi user, lọc quyền: `[{iccid, phone_number, slot_number, enabled, interval_days, last_activity_at, next_due_at, sent_this_month, last_run:{status, reason, ran_at, target_phone}}]`.
+- `GET /api/v1/keepalive/status` — mọi user, lọc quyền: `{config:{enabled, run_hour, interval_days, max_per_month}, items:[{iccid, phone_number, slot_number, enabled, interval_days, last_activity_at, next_due_at, sent_this_month, online, last_run:{status, reason, ran_at, target_phone}}]}` (`config` để UI hiện banner công tắc tổng + KPI "Lần chạy kế tiếp").
 - `GET /api/v1/keepalive/runs?iccid=&page=&page_size=` — admin.
 - `POST /api/v1/keepalive/run` — admin; `{iccid?}`: chạy ngay cho một SIM (bỏ qua điều kiện interval nhưng **vẫn** tôn trọng trần tháng) hoặc cả khay theo đúng luật; 409 khi `cfg.enabled=false`.
 - `PATCH /api/v1/modems/:iccid/profile` nhận thêm `keepalive_enabled` (bool), `keepalive_interval` (int ≥1 | null).
