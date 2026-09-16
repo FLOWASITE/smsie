@@ -286,7 +286,7 @@
         }
       }
     </style>
-    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-nuoi-ui2" />
+    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-nuoi-grid" />
   </head>
   <body>
     <div id="login-app" class="login-wrap d-none">
@@ -583,11 +583,17 @@
                 <h1>Nuôi SIM</h1>
                 <p>Gửi 1 SMS nội mạng sang SIM khác trong khay khi SIM im lặng quá chu kỳ; có trần tháng, không gửi ra ngoài.</p>
               </div>
+              <div class="ops-head-actions">
+                <div id="ops-maint-view" class="ops-seg" role="group" aria-label="Cách hiển thị">
+                  <button type="button" data-view="cards" aria-pressed="true"><i class="bi bi-grid-3x3-gap"></i> Thẻ</button>
+                  <button type="button" data-view="table" aria-pressed="false"><i class="bi bi-table"></i> Bảng</button>
+                </div>
+              </div>
             </header>
             <div id="ops-keepalive-banner" class="ops-banner d-none" role="status"><i class="bi bi-toggle-off"></i><span>Công tắc tổng đang TẮT trong config.yaml — không SIM nào được gửi.</span><code class="ops-banner-chip">keepalive.enabled: false</code></div>
             <div id="ops-keepalive-on" class="ops-banner-on d-none" role="status"><i class="bi bi-toggle-on"></i><span></span></div>
             <div id="ops-maintenance-summary" class="ops-kpi-grid"></div>
-            <div id="ops-schedule-list" class="schedule-list"></div>
+            <div id="ops-schedule-list" class="ka-grid"></div>
           </section>
 
           <section id="view-alerts" class="view-section ops-view d-none">
@@ -1178,7 +1184,7 @@
     <script src="/static/js/router.js?v=20260911-calls"></script>
     <script src="/static/js/app.js?v=20260911-calls-v4"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20260916-nuoi-ui2"></script>
+    <script src="/static/js/operations-console.js?v=20260916-nuoi-grid"></script>
   </body>
 </html>
 
