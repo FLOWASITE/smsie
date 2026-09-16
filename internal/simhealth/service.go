@@ -111,7 +111,11 @@ func (s *Service) Evaluate() error {
 	if err != nil {
 		return err
 	}
-	remind := time.Duration(s.cfg.RemindDays) * 24 * time.Hour
+	remindDays := s.cfg.RemindDays
+	if remindDays <= 0 {
+		remindDays = 7
+	}
+	remind := time.Duration(remindDays) * 24 * time.Hour
 	for _, it := range items {
 		for _, f := range it.Findings {
 			if done, err := s.alerts.AlertedWithin(it.ICCID, f.Kind, remind); err != nil || done {

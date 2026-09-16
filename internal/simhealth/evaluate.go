@@ -24,6 +24,7 @@ type Finding struct {
 }
 
 // Evaluate thuần: không DB, không đồng hồ — now do caller đưa vào.
+// SIM đã rút khỏi khay chỉ có thể là absent — no_sms/unregistered cần SIM đang cắm.
 func Evaluate(now time.Time, cfg Config, inputs []Input) []Finding {
 	var out []Finding
 	for _, in := range inputs {
@@ -31,7 +32,7 @@ func Evaluate(now time.Time, cfg Config, inputs []Input) []Finding {
 		if ref == nil {
 			ref = in.FirstSeenAt
 		}
-		if ref != nil && cfg.NoSMSDays > 0 && now.Sub(*ref) >= days(cfg.NoSMSDays) {
+		if in.InBay && ref != nil && cfg.NoSMSDays > 0 && now.Sub(*ref) >= days(cfg.NoSMSDays) {
 			out = append(out, Finding{in.ICCID, model.SimAlertNoSMS, fmt.Sprintf("không nhận SMS nào %d ngày — có thể bị thu hồi", int(now.Sub(*ref).Hours()/24))})
 		}
 		if in.Online && cfg.UnregisteredHours > 0 {

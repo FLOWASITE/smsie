@@ -22,6 +22,7 @@ func TestEvaluate(t *testing.T) {
 		{"online, chưa từng đăng ký, thấy 26h → unregistered", Input{Online: true, FirstSeenAt: ago(26 * time.Hour), InBay: true}, "unregistered", "không đăng ký mạng 26 giờ dù modem online"},
 		{"offline không báo unregistered", Input{Online: false, LastRegisteredAt: ago(48 * time.Hour), LastSMSAt: ago(time.Hour), InBay: true}, "", ""},
 		{"vắng khay 8 ngày → absent", Input{LastRemovedAt: ago(8 * 24 * time.Hour), LastSMSAt: ago(time.Hour)}, "absent", "đã rút khỏi khay 8 ngày"},
+		{"đã rút 8 ngày, im 60 ngày → chỉ absent", Input{LastRemovedAt: ago(8 * 24 * time.Hour), LastSMSAt: ago(60 * 24 * time.Hour)}, "absent", "đã rút khỏi khay 8 ngày"},
 		{"vắng 3 ngày → im", Input{LastRemovedAt: ago(3 * 24 * time.Hour), LastSMSAt: ago(time.Hour)}, "", ""},
 		{"removed cũ nhưng đang trong khay → im", Input{LastRemovedAt: ago(9 * 24 * time.Hour), LastSMSAt: ago(time.Hour), InBay: true}, "", ""},
 	}

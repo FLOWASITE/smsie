@@ -22,7 +22,8 @@ func TestServiceRemindsEverySevenDays(t *testing.T) {
 	}
 	seen := time.Now().Add(-60 * 24 * time.Hour)
 	db.Create(&model.Modem{ICCID: "A", PhoneNumber: "0900000001", FirstSeenAt: &seen})
-	db.Create(&model.SMS{ICCID: "A", Type: "received", Timestamp: time.Now().Add(-31 * 24 * time.Hour)})
+	old := time.Now().Add(-31 * 24 * time.Hour)
+	db.Create(&model.SMS{ICCID: "A", Type: "received", Timestamp: old, CreatedAt: old})
 	db.Create(&model.SMS{ICCID: "A", Type: "sent", Timestamp: time.Now()}) // sent không tính
 	slot3 := 3
 	db.Create(&model.ModemBay{IMEI: "I-A", SlotNumber: &slot3, CurrentICCID: "A"})
@@ -39,7 +40,7 @@ func TestServiceRemindsEverySevenDays(t *testing.T) {
 	if len(items) != 2 || !items[0].InBay || *items[0].SlotNumber != 3 || len(items[0].Findings) != 1 || items[0].Findings[0].Kind != model.SimAlertNoSMS {
 		t.Fatalf("items[0] = %+v", items[0])
 	}
-	if items[1].InBay || len(items[1].Findings) != 2 { // B: no_sms (thấy 60 ngày) + absent
+	if items[1].InBay || len(items[1].Findings) != 1 || items[1].Findings[0].Kind != model.SimAlertAbsent { // B: chỉ absent — SIM đã rút không báo no_sms
 		t.Fatalf("items[1] = %+v", items[1])
 	}
 	if got := alertText(items[0], items[0].Findings[0]); got != "🪦 SIM 0900000001 (khe 3): không nhận SMS nào 31 ngày — có thể bị thu hồi" {
@@ -51,14 +52,14 @@ func TestServiceRemindsEverySevenDays(t *testing.T) {
 		db.Model(&model.SimAlert{}).Count(&n)
 		return n
 	}
-	if err := s.Evaluate(); err != nil || count() != 3 {
+	if err := s.Evaluate(); err != nil || count() != 2 {
 		t.Fatalf("lần 1: err=%v n=%d", err, count())
 	}
-	if err := s.Evaluate(); err != nil || count() != 3 {
+	if err := s.Evaluate(); err != nil || count() != 2 {
 		t.Fatalf("lần 2 (vẫn trong remind): err=%v n=%d", err, count())
 	}
 	db.Model(&model.SimAlert{}).Where("iccid = ? AND kind = ?", "A", model.SimAlertNoSMS).Update("sent_at", time.Now().Add(-8*24*time.Hour))
-	if err := s.Evaluate(); err != nil || count() != 4 {
+	if err := s.Evaluate(); err != nil || count() != 3 {
 		t.Fatalf("lần 3 (8 ngày sau): err=%v n=%d", err, count())
 	}
 }

@@ -71,10 +71,11 @@ func TestLastReceivedSMSAtIgnoresSent(t *testing.T) {
 	}
 	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	rows := []model.SMS{
-		{ICCID: "A", Phone: "1", Type: "received", Timestamp: base},
-		{ICCID: "A", Phone: "1", Type: "received", Timestamp: base.Add(time.Hour)},
-		{ICCID: "A", Phone: "1", Type: "sent", Timestamp: base.Add(5 * time.Hour)},
-		{ICCID: "B", Phone: "1", Type: "sent", Timestamp: base},
+		// timestamp (SCTS mạng) cố tình lệch thứ tự: mốc phải theo created_at của dòng id lớn nhất.
+		{ICCID: "A", Phone: "1", Type: "received", Timestamp: base.Add(9 * time.Hour), CreatedAt: base},
+		{ICCID: "A", Phone: "1", Type: "received", Timestamp: base, CreatedAt: base.Add(time.Hour)},
+		{ICCID: "A", Phone: "1", Type: "sent", Timestamp: base.Add(5 * time.Hour), CreatedAt: base.Add(5 * time.Hour)},
+		{ICCID: "B", Phone: "1", Type: "sent", Timestamp: base, CreatedAt: base},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatal(err)
