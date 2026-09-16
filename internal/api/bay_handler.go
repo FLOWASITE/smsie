@@ -38,6 +38,32 @@ type bayView struct {
 }
 
 func (h *BayHandler) List(c *gin.Context) {
+	actor, ok := getActor(c)
+	if !ok || actor.User == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	if !permissionFlagFromKey(actor.APIKey, PermViewSMS) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "API key permission denied"})
+		return
+	}
+	// Non-admin chỉ thấy khe trống + khe chứa SIM mình được xem (cùng cách lọc với ListModems).
+	allowed, err := allowedICCIDsForPermission(h.db, actor.User, PermViewSMS)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "permission check failed"})
+		return
+	}
+	canSee := func(iccid string) bool {
+		if actor.User.Role == "admin" || hasWildcardICCID(allowed) {
+			return true
+		}
+		for _, a := range allowed {
+			if a == iccid {
+				return true
+			}
+		}
+		return false
+	}
 	bays, err := h.repo.List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list bays"})
@@ -60,6 +86,9 @@ func (h *BayHandler) List(c *gin.Context) {
 
 	out := make([]bayView, 0, len(bays))
 	for _, b := range bays {
+		if b.CurrentICCID != "" && !canSee(b.CurrentICCID) {
+			continue
+		}
 		v := bayView{ModemBay: b, Status: "empty"}
 		if b.CurrentICCID != "" {
 			v.Status = "offline"

@@ -60,6 +60,29 @@ func TestListBaysIncludesRuntimeAndUnassigned(t *testing.T) {
 	}
 }
 
+func TestListBaysHidesInaccessibleSimsFromNonAdmin(t *testing.T) {
+	h, db := newBayHandlerTest(t)
+	db.Create(&model.ModemBay{IMEI: "IMEI-A", SlotNumber: intptr(1), CurrentICCID: "ICCID-1"})
+	db.Create(&model.ModemBay{IMEI: "IMEI-B", SlotNumber: intptr(2), CurrentICCID: "ICCID-2"})
+	db.Create(&model.ModemBay{IMEI: "IMEI-C", SlotNumber: intptr(3)})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/bays", nil)
+	c.Set("user", &model.User{ID: 7, Role: "user", AllowedModems: "ICCID-1"})
+	h.List(c)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var body []bayView
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != 2 || *body[0].SlotNumber != 1 || *body[1].SlotNumber != 3 {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
 func TestAssignBaySlotConflict(t *testing.T) {
 	h, db := newBayHandlerTest(t)
 	db.Create(&model.ModemBay{IMEI: "IMEI-A", SlotNumber: intptr(15)})
