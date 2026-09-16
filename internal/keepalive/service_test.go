@@ -152,3 +152,36 @@ func TestNoCandidateSkips(t *testing.T) {
 		t.Fatalf("text = %q", got)
 	}
 }
+
+// Hai lượt chồng nhau (scheduler RunAll + RunNow) cùng Collect() trước khi vào khoá → cả hai thấy số cũ.
+// runOne phải đọc lại trần + mốc gửi cuối từ nhật ký TRONG khoá.
+func TestRunOneRereadsLogUnderLock(t *testing.T) {
+	s, fs, db := newTest(t, true)
+	stale, err := s.Collect() // SentThisMonth = 0, chưa tới hạn nào ghi
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RunOne("A", true); err != nil || len(fs.calls) != 1 {
+		t.Fatalf("lượt 1: err=%v calls=%v", err, fs.calls)
+	}
+	// lượt chồng, không force: vừa gửi xong → không còn tới hạn → không run, không gửi
+	if run, err := s.runOne(stale[0], stale, false); err != nil || run != nil || len(fs.calls) != 1 {
+		t.Fatalf("stale not-due: run=%+v err=%v calls=%v", run, err, fs.calls)
+	}
+	for i := 0; i < 2; i++ {
+		db.Create(&model.KeepaliveRun{ICCID: "A", TargetICCID: "B", Status: model.KeepaliveSent, RanAt: s.now()})
+	}
+	// lượt chồng, force: nhật ký đã 3 sent → phải skipped dù item cũ nói 0
+	if run, err := s.runOne(stale[0], stale, true); err != nil || run == nil || run.Status != model.KeepaliveSkipped || len(fs.calls) != 1 {
+		t.Fatalf("stale cap: run=%+v err=%v calls=%v", run, err, fs.calls)
+	}
+}
+
+func TestBadTemplateDoesNotSend(t *testing.T) {
+	s, fs, _ := newTest(t, true)
+	s.cfg.Message = "keepalive {{.Date"
+	run, err := s.RunOne("A", true)
+	if err != nil || run == nil || run.Status != model.KeepaliveFailed || len(fs.calls) != 0 {
+		t.Fatalf("run=%+v err=%v calls=%v", run, err, fs.calls)
+	}
+}

@@ -175,11 +175,14 @@ func (s *Service) runAll(stop <-chan struct{}) (int, error) {
 			case <-time.After(s.gap):
 			}
 		}
-		if _, err := s.runOne(it, items); err != nil {
+		run, err := s.runOne(it, items, false)
+		if err != nil {
 			logger.Log.Errorf("keepalive: %s lỗi: %v", it.ICCID, err)
 			continue
 		}
-		n++
+		if run != nil {
+			n++
+		}
 	}
 	return n, nil
 }
@@ -204,15 +207,33 @@ func (s *Service) RunOne(iccid string, force bool) (*model.KeepaliveRun, error) 
 		if !force && !isDue(s.now(), it.LastActivityAt, it.firstSeen, it.IntervalDays) {
 			return nil, nil
 		}
-		return s.runOne(it, items)
+		return s.runOne(it, items, force)
 	}
 	return nil, gorm.ErrRecordNotFound
 }
 
-func (s *Service) runOne(it Item, all []Item) (*model.KeepaliveRun, error) {
+// runOne: Collect() chạy NGOÀI khoá nên hai lượt chồng nhau (scheduler + RunNow) mang cùng số cũ;
+// trần tháng và mốc gửi cuối phải đọc lại từ nhật ký TRONG khoá, nếu không gửi vượt trần / gửi đúp.
+func (s *Service) runOne(it Item, all []Item, force bool) (*model.KeepaliveRun, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
+	var err error
+	if it.SentThisMonth, err = s.repo.SentCountThisMonth(it.ICCID, now); err != nil {
+		return nil, err
+	}
+	if !force {
+		last, err := s.repo.LastSentAt(it.ICCID)
+		if err != nil {
+			return nil, err
+		}
+		if last != nil && (it.LastActivityAt == nil || last.After(*it.LastActivityAt)) {
+			it.LastActivityAt = last
+		}
+		if !isDue(now, it.LastActivityAt, it.firstSeen, it.IntervalDays) {
+			return nil, nil
+		}
+	}
 	run := &model.KeepaliveRun{ICCID: it.ICCID, RanAt: now}
 	alertWindow := 7 * 24 * time.Hour
 	if it.SentThisMonth >= s.cfg.MaxPerMonth {
@@ -220,9 +241,11 @@ func (s *Service) runOne(it Item, all []Item) (*model.KeepaliveRun, error) {
 		alertWindow = 30 * 24 * time.Hour
 	} else if target, ok := pickTarget(s.candidate(it), s.candidates(all, now)); !ok {
 		run.Status, run.Reason = model.KeepaliveSkipped, "không có SIM cùng nhà mạng có số điện thoại trong khay"
+	} else if msg, err := s.render(now); err != nil {
+		run.Status, run.Reason = model.KeepaliveFailed, "mẫu tin nhắn lỗi: "+err.Error()
 	} else {
 		run.TargetICCID, run.TargetPhone = target.ICCID, target.Phone
-		if err := s.sender.SendSMS(it.ICCID, target.Phone, s.render(now)); err != nil {
+		if err := s.sender.SendSMS(it.ICCID, target.Phone, msg); err != nil {
 			run.Status, run.Reason = model.KeepaliveFailed, err.Error()
 		} else {
 			run.Status = model.KeepaliveSent
@@ -259,17 +282,18 @@ func (s *Service) candidates(all []Item, now time.Time) []Candidate {
 	return out
 }
 
-// render nội dung SMS từ cfg.Message qua text/template với {{.Date}} = yyyy-mm-dd; lỗi template → dùng nguyên văn.
-func (s *Service) render(now time.Time) string {
+// render nội dung SMS từ cfg.Message qua text/template với {{.Date}} = yyyy-mm-dd;
+// lỗi template → trả lỗi, KHÔNG gửi nguyên văn "{{" (tốn tiền cho tin rác).
+func (s *Service) render(now time.Time) (string, error) {
 	t, err := template.New("msg").Parse(s.cfg.Message)
 	if err != nil {
-		return s.cfg.Message
+		return "", err
 	}
 	var b strings.Builder
 	if err := t.Execute(&b, struct{ Date string }{now.Format("2006-01-02")}); err != nil {
-		return s.cfg.Message
+		return "", err
 	}
-	return b.String()
+	return b.String(), nil
 }
 
 func (s *Service) alert(it Item, reason string, window time.Duration) {
