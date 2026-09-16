@@ -1187,6 +1187,11 @@ func (w *ModemWorker) SendSMS(phoneNumber, message string) error {
 	logger.Log.Infof("[%s] Sending SMS to %s: %s (PDUs: %d)", w.PortName, phoneNumber, message, len(tpdus))
 
 	err = w.runATTransaction(func(session *atSession) error {
+		// SMS Phase 2+ (CSMS=1): trên LTE với CSMS=0, EC20 treo AT+CMGS tới timeout.
+		// Modem không nhớ qua reboot nên đặt mỗi lần gửi; lỗi thì bỏ qua (module không hỗ trợ).
+		if _, err := session.execute("AT+CSMS=1", 3*time.Second, false); err != nil {
+			logger.Log.Debugf("[%s] AT+CSMS=1 not accepted: %v", w.PortName, err)
+		}
 		if _, err := session.execute("AT+CMGF=0", 5*time.Second, false); err != nil {
 			return fmt.Errorf("failed to set PDU mode: %w", err)
 		}

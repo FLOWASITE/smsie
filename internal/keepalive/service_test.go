@@ -72,7 +72,7 @@ func TestDueWithTargetSends(t *testing.T) {
 	if err != nil || run == nil || run.Status != model.KeepaliveSent || run.TargetICCID != "B" || run.TargetPhone != "0900000002" {
 		t.Fatalf("run = %+v, err = %v", run, err)
 	}
-	if len(fs.calls) != 1 || fs.calls[0] != "A→0900000002: keepalive 2026-09-16" {
+	if len(fs.calls) != 1 || fs.calls[0] != "A→0900000002: keepalive 20260916" {
 		t.Fatalf("calls = %v", fs.calls)
 	}
 	var al model.AuditLog
