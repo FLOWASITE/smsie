@@ -55,3 +55,10 @@ sim_health:
   unregistered_hours: 24   # modem online nhưng không đăng ký mạng N giờ
   absent_days: 7           # rút khỏi khay N ngày chưa cắm lại
   remind_days: 7           # nhắc lại mỗi N ngày
+
+keepalive:
+  enabled: false           # nuôi SIM — TỐN TIỀN (gửi SMS nội mạng), phải bật tường minh
+  interval_days: 25        # gửi khi không có SMS đi/đến trong N ngày (per-SIM: keepalive_interval)
+  max_per_month: 3         # trần số lần gửi mỗi SIM mỗi tháng dương lịch
+  message: "keepalive {{.Date}}"   # nội dung; {{.Date}} = yyyy-mm-dd
+  run_hour: 7              # giờ chạy hằng ngày (sau giờ đọc số dư)

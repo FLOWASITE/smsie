@@ -17,6 +17,16 @@ type Config struct {
 	Log       LogConfig       `mapstructure:"log"`
 	Balance   BalanceConfig   `mapstructure:"balance"`
 	SimHealth SimHealthConfig `mapstructure:"sim_health"`
+	Keepalive KeepaliveConfig `mapstructure:"keepalive"`
+}
+
+// KeepaliveConfig — nuôi SIM bằng SMS nội mạng định kỳ. Tốn tiền nên Enabled mặc định false.
+type KeepaliveConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`
+	IntervalDays int    `mapstructure:"interval_days"`
+	MaxPerMonth  int    `mapstructure:"max_per_month"`
+	Message      string `mapstructure:"message"`
+	RunHour      int    `mapstructure:"run_hour"`
 }
 
 type SimHealthConfig struct {
@@ -115,6 +125,11 @@ func LoadConfig() {
 	viper.SetDefault("sim_health.unregistered_hours", 24)
 	viper.SetDefault("sim_health.absent_days", 7)
 	viper.SetDefault("sim_health.remind_days", 7)
+	viper.SetDefault("keepalive.enabled", false)
+	viper.SetDefault("keepalive.interval_days", 25)
+	viper.SetDefault("keepalive.max_per_month", 3)
+	viper.SetDefault("keepalive.message", "keepalive {{.Date}}")
+	viper.SetDefault("keepalive.run_hour", 7)
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file not found, using defaults. Error: %v", err)
