@@ -11,6 +11,7 @@ const opsState = {
     audit: [],
     auditTotal: 0,
     auditPage: 1,
+    report: { month: '', rows: [], totals: {} },
     balanceStatus: [],
     simHealth: [],
     keepalive: { config: {}, items: [] },
@@ -959,12 +960,55 @@ function renderAlertCenter() {
     });
 }
 
+// formatReportRow: một dòng báo cáo tháng → chuỗi hiển thị (thuần, có test node). null → '—'.
+function formatReportRow(row) {
+    const r = row || {};
+    const num = v => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('vi-VN');
+    const delta = r.balance_delta;
+    return {
+        slot: r.slot_number === null || r.slot_number === undefined ? '—' : `#${r.slot_number}`,
+        iccid: r.iccid || '—',
+        phone: r.phone_number || '—',
+        smsReceived: num(r.sms_received || 0),
+        smsSent: num(r.sms_sent || 0),
+        smsFailed: num(r.sms_failed || 0),
+        calls: num(r.calls || 0),
+        callMinutes: (Math.round(((r.call_seconds || 0) / 60) * 10) / 10).toLocaleString('vi-VN'),
+        balanceStart: num(r.balance_start),
+        balanceEnd: num(r.balance_end),
+        balanceDelta: delta === null || delta === undefined ? '—' : (delta > 0 ? '+' : '') + num(delta),
+        deltaTone: delta === null || delta === undefined ? '' : delta < 0 ? 'text-danger' : delta > 0 ? 'text-success' : '',
+        slotEvents: num(r.slot_events || 0),
+        keepaliveSent: num(r.keepalive_sent || 0),
+        alerts: num(r.alerts || 0)
+    };
+}
+
+function currentReportMonth() {
+    return $('#report-month').val() || new Date().toISOString().slice(0, 7);
+}
+
+function loadMonthlyReport() {
+    return $.get('/api/v1/reports/monthly', { month: currentReportMonth() }).done(function (response) {
+        opsState.report = { month: response.month, rows: response.rows || [], totals: response.totals || {} };
+        renderReportPreview();
+    }).fail(function () {
+        opsState.report = { month: currentReportMonth(), rows: [], totals: {} };
+        renderReportPreview();
+    });
+}
+
 function renderReportPreview() {
-    const summary = summarizeOpsData(opsState.modems, opsState.messages);
+    const rep = opsState.report || { rows: [], totals: {} };
+    const summary = Object.assign({}, rep.totals || {});
+    summary.received = summary.sms_received || 0;
+    summary.sent = summary.sms_sent || 0;
+    summary.failed = summary.sms_failed || 0;
+    summary.messageTotal = summary.received + summary.sent;
     const cards = [
-        { label: 'Tổng SMS', value: summary.messageTotal, note: 'Trong dữ liệu hiện có', icon: 'bi-chat-square-dots', tone: 'blue' },
-        { label: 'Tin nhận', value: summary.received, note: `${summary.unread} tin chưa đọc`, icon: 'bi-arrow-down-left-circle', tone: 'mint' },
-        { label: 'Tin đã gửi', value: summary.sent, note: `${summary.delivered} đã giao`, icon: 'bi-send-check', tone: 'green' },
+        { label: 'Tổng SMS', value: summary.messageTotal, note: `Tháng ${rep.month || currentReportMonth()}`, icon: 'bi-chat-square-dots', tone: 'blue' },
+        { label: 'Tin nhận', value: summary.received, note: `${(rep.rows || []).length} SIM`, icon: 'bi-arrow-down-left-circle', tone: 'mint' },
+        { label: 'Tin đã gửi', value: summary.sent, note: `${summary.keepalive_sent || 0} tin nuôi SIM`, icon: 'bi-send-check', tone: 'green' },
         { label: 'Gửi lỗi', value: summary.failed, note: 'Không tự động gửi lại', icon: 'bi-exclamation-octagon', tone: 'coral' }
     ];
     const kpis = $('#ops-report-kpis').empty();
@@ -982,11 +1026,10 @@ function renderReportPreview() {
     const chart = $('#ops-message-chart').empty();
     chart.append(opsElement('div', 'eyebrow', 'Vòng đời tin nhắn'));
     chart.append(opsElement('h2', '', 'Trạng thái SMS'));
-    const max = Math.max(summary.received, summary.sent, summary.delivered, summary.failed, 1);
+    const max = Math.max(summary.received, summary.sent, summary.failed, 1);
     [
         ['Tin nhận', summary.received, 'received'],
         ['Đã gửi', summary.sent, 'sent'],
-        ['Đã giao', summary.delivered, 'delivered'],
         ['Thất bại', summary.failed, 'failed']
     ].forEach(([label, value, status]) => {
         const row = opsElement('div', 'chart-row');
@@ -996,6 +1039,26 @@ function renderReportPreview() {
         row.append(track, opsElement('div', 'chart-value', String(value)));
         chart.append(row);
     });
+
+    const body = $('#ops-report-body').empty();
+    const foot = $('#ops-report-foot').empty();
+    $('#report-month-label').text(`Tháng ${rep.month || currentReportMonth()}`);
+    const cells = f => [f.slot, f.iccid, f.phone, f.smsReceived, f.smsSent, f.smsFailed, f.calls, f.callMinutes, f.balanceStart, f.balanceEnd, f.balanceDelta, f.slotEvents, f.keepaliveSent, f.alerts];
+    if (!(rep.rows || []).length) {
+        body.append($('<tr>').append($('<td>').attr('colspan', 14).append(opsElement('div', 'ops-empty', 'Không có SIM nào trong tháng này.'))));
+    }
+    (rep.rows || []).forEach(row => {
+        const f = formatReportRow(row);
+        const tr = $('<tr>');
+        cells(f).forEach((value, i) => tr.append($('<td>').toggleClass('mono', i === 1).toggleClass(f.deltaTone, i === 10 && !!f.deltaTone).text(value)));
+        body.append(tr);
+    });
+    if ((rep.rows || []).length) {
+        const f = formatReportRow(Object.assign({}, rep.totals, { iccid: 'Tổng', phone_number: '', slot_number: null }));
+        const tr = $('<tr>').addClass('fw-semibold');
+        cells(f).forEach((value, i) => tr.append($('<td>').toggleClass(f.deltaTone, i === 10 && !!f.deltaTone).text(i === 0 || i === 2 ? '' : value)));
+        foot.append(tr);
+    }
 
     const health = $('#ops-health-breakdown').empty();
     health.append(opsElement('div', 'eyebrow', 'Sức khỏe SIM'));
@@ -1196,7 +1259,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
@@ -1253,14 +1316,22 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             status.text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gửi được yêu cầu đọc số dư.');
         }).always(function () { button.prop('disabled', false); });
     });
-    $('#btn-export-preview').click(function () {
-        const blob = new Blob(['\ufeff', buildOpsCsv(opsState.messages)], { type: 'text/csv;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `smsie-report-${new Date().toISOString().slice(0, 10)}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
+    $('#report-month').val(new Date().toISOString().slice(0, 7)).on('change', loadMonthlyReport);
+    $('#btn-report-csv').click(async function () {
+        const month = currentReportMonth();
+        try {
+            const response = await fetch(`/api/v1/reports/monthly?month=${encodeURIComponent(month)}&format=csv`, {
+                headers: { Authorization: `Bearer ${auth.token}` }
+            });
+            if (!response.ok) throw new Error('csv failed');
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(await response.blob());
+            link.download = `smsie-bao-cao-${month}.csv`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        } catch (_) {
+            $('#ops-backup-status').text('Không tải được CSV tháng.');
+        }
     });
     $('#btn-backup-database').click(async function () {
         const button = $(this);
@@ -1303,6 +1374,7 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             opsState.auditPage = 1;
             loadAudit();
         }
+        if (route.view === 'reports') loadMonthlyReport();
     });
     if (auth.username && ['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(window.currentAppRoute().view)) {
         loadOperationsData();

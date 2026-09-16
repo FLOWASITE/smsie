@@ -612,7 +612,8 @@
                 <p>Thống kê theo SIM, chiều tin nhắn, trạng thái và thời gian.</p>
               </div>
               <div class="ops-head-actions">
-                <button id="btn-export-preview" class="btn btn-outline-secondary"><i class="bi bi-filetype-csv"></i> Xuất CSV</button>
+                <input type="month" id="report-month" class="form-control" aria-label="Tháng báo cáo" />
+                <button id="btn-report-csv" class="btn btn-outline-secondary"><i class="bi bi-filetype-csv"></i> Tải CSV tháng</button>
                 <button id="btn-backup-database" class="btn btn-dark"><i class="bi bi-database-down"></i> Sao lưu dữ liệu</button>
                 <button class="btn btn-outline-secondary" disabled title="Sẽ bật sau khi Windows Service hỗ trợ restart an toàn"><i class="bi bi-database-up"></i> Khôi phục</button>
               </div>
@@ -622,6 +623,16 @@
             <div class="ops-dashboard-grid report-grid">
               <section class="ops-panel"><div id="ops-message-chart" class="chart-shell"></div></section>
               <section class="ops-panel"><div id="ops-health-breakdown"></div></section>
+            </div>
+            <div class="ops-panel mt-3">
+              <div class="ops-panel-head"><h2>Theo SIM trong tháng</h2><div id="report-month-label" class="ops-list-note"></div></div>
+              <div class="table-responsive">
+                <table class="table ops-table align-middle mb-0">
+                  <thead><tr><th>Khe</th><th>SIM</th><th>Số thuê bao</th><th>SMS nhận</th><th>SMS gửi</th><th>SMS lỗi</th><th>Cuộc gọi</th><th>Phút gọi</th><th>Số dư đầu</th><th>Số dư cuối</th><th>Chênh lệch</th><th>Đổi khe</th><th>Nuôi SIM</th><th>Cảnh báo</th></tr></thead>
+                  <tbody id="ops-report-body"></tbody>
+                  <tfoot id="ops-report-foot"></tfoot>
+                </table>
+              </div>
             </div>
           </section>
 
@@ -1129,7 +1140,7 @@
     <script src="/static/js/router.js?v=20260911-calls"></script>
     <script src="/static/js/app.js?v=20260911-calls-v4"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20260916-audit"></script>
+    <script src="/static/js/operations-console.js?v=20260916-report"></script>
   </body>
 </html>
 

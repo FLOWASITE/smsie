@@ -158,6 +158,7 @@ func main() {
 	akh := api.NewAPIKeyHandler(db)
 	backupHandler := api.NewAdminBackupHandler(db, config.AppConfig.Database.Driver)
 	auditHandler := api.NewAuditHandler(db)
+	reportHandler := api.NewReportHandler(db)
 	recordingHandler := api.NewCallRecordingHandler(db, "recordings")
 	mcpHTTP := api.NewMCPHTTPServer(db, wm)
 	r.Any("/mcp", gin.WrapH(mcpHTTP.Handler()))
@@ -202,6 +203,7 @@ func main() {
 			authGroup.GET("/modems/:iccid/call/recordings/:id/file", recordingHandler.Download)
 			authGroup.POST("/modems/:iccid/reboot", mh.Reboot)
 			authGroup.POST("/modems/:iccid/send", mh.SendSMS)
+			authGroup.GET("/reports/monthly", reportHandler.Monthly)
 			authGroup.GET("/sms", sh.ListSMS)
 			authGroup.GET("/modems/:iccid/ws", mh.WS)
 

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -163,4 +163,20 @@ test('auditCsv: tiêu đề + nhãn Việt + escape dấu nháy', () => {
     const lines = csv.split('\r\n');
     assert.equal(lines[0], '"at","username","action","label","iccid","target","status","ip","detail"');
     assert.equal(lines[1], '"2026-09-16T10:00:00Z","alice","sms.send","Gửi SMS","89","0912","200","::1","{""message"":""a ""b""""}"');
+});
+
+test('formatReportRow: số có dấu chấm nghìn, null → —, delta có dấu', () => {
+    const f = formatReportRow({ iccid: '89', phone_number: '0911', slot_number: 3, sms_received: 1200, sms_sent: 5, sms_failed: 0, calls: 2, call_seconds: 75, balance_start: 50000, balance_end: 35000, balance_delta: -15000, slot_events: 1, keepalive_sent: 1, alerts: 2 });
+    assert.equal(f.slot, '#3');
+    assert.equal(f.smsReceived, '1.200');
+    assert.equal(f.callMinutes, '1,3');
+    assert.equal(f.balanceDelta, '-15.000');
+    assert.equal(f.deltaTone, 'text-danger');
+    const empty = formatReportRow({ iccid: 'x', slot_number: null, balance_start: null, balance_end: null, balance_delta: null });
+    assert.equal(empty.slot, '—');
+    assert.equal(empty.phone, '—');
+    assert.equal(empty.balanceStart, '—');
+    assert.equal(empty.balanceDelta, '—');
+    assert.equal(empty.smsReceived, '0');
+    assert.equal(formatReportRow({ balance_delta: 500 }).balanceDelta, '+500');
 });
