@@ -360,6 +360,72 @@ components:
           type: string
           format: date-time
 
+    SimHealthItem:
+      type: object
+      description: A SIM evaluated against the sim_health.* thresholds (no_sms_days, unregistered_hours, absent_days).
+      properties:
+        iccid:
+          type: string
+        phone_number:
+          type: string
+        slot_number:
+          type: integer
+          nullable: true
+        online:
+          type: boolean
+          description: Modem currently online at runtime
+        last_registered_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last time the modem reported the SIM registered on the network
+        last_sms_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last received SMS (by insertion time)
+        first_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        in_bay:
+          type: boolean
+          description: SIM currently mapped to a physical bay
+        last_removed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last `removed` slot event for this SIM
+        findings:
+          type: array
+          description: Empty when the SIM looks healthy
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                enum: [no_sms, unregistered, absent]
+                description: no_sms = no received SMS for sim_health.no_sms_days, unregistered = online but not registered for sim_health.unregistered_hours, absent = removed from bay for sim_health.absent_days
+              detail:
+                type: string
+
+    SimAlert:
+      type: object
+      description: One SIM health alert already sent (repeated at most every sim_health.remind_days).
+      properties:
+        id:
+          type: integer
+        iccid:
+          type: string
+        kind:
+          type: string
+          enum: [no_sms, unregistered, absent]
+        detail:
+          type: string
+        sent_at:
+          type: string
+          format: date-time
+
     SimSlotEvent:
       type: object
       description: Append-only history row — a SIM (ICCID) inserted into, moved between, or removed from a bay.
@@ -1035,6 +1101,56 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/BalanceAlert"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        "403":
+          description: Admin access required
+
+  /sim-health:
+    get:
+      summary: SIM health for every SIM (silent / unregistered / absent from bay)
+      description: Evaluates each SIM against sim_health.* thresholds without recording an alert. Non-admin callers only see SIMs they are allowed to view.
+      responses:
+        "200":
+          description: One item per SIM; findings is empty when the SIM looks healthy
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SimHealthItem"
+
+  /sim-health/alerts:
+    get:
+      summary: List SIM health alerts already sent (Admin only)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+      responses:
+        "200":
+          description: Paginated alert history, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SimAlert"
                   total:
                     type: integer
                   page:
