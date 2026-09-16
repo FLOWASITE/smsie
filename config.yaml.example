@@ -73,3 +73,9 @@ phone_lookup:
 
 audit:
   keep_days: 365           # giữ nhật ký hành động bao nhiêu ngày (dọn lúc khởi động + hằng ngày)
+
+backup:
+  enabled: true            # sao lưu SQLite tự động (chỉ driver sqlite)
+  dir: "backups"           # thư mục tương đối gốc app
+  hour: 3                  # giờ chạy hằng ngày (0-23), không chạy lúc khởi động
+  keep: 14                 # giữ N bản smsie-*.db mới nhất; pre-restore-*.db không bị xoá

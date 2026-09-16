@@ -57,6 +57,8 @@ var actions = map[string]string{
 	"POST /api/v1/webhooks":                    "webhook.create",
 	"DELETE /api/v1/webhooks/:id":              "webhook.delete",
 	"POST /api/v1/change_password":             "auth.password",
+	"POST /api/v1/admin/backups/run":            "backup.run",
+	"POST /api/v1/admin/restore":                "restore.staged",
 }
 
 func actionFor(method, fullPath string) string {

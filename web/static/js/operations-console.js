@@ -12,6 +12,7 @@ const opsState = {
     auditTotal: 0,
     auditPage: 1,
     report: { month: '', rows: [], totals: {} },
+    backups: { items: [], schedule: {} },
     balanceStatus: [],
     simHealth: [],
     keepalive: { config: {}, items: [] },
@@ -1004,6 +1005,77 @@ function loadMonthlyReport() {
     });
 }
 
+// formatBackupSize: byte → chuỗi đọc được (thuần, có test node).
+function formatBackupSize(bytes) {
+    const n = Number(bytes || 0);
+    if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} MB`;
+    if (n >= 1024) return `${Math.round(n / 1024).toLocaleString('vi-VN')} KB`;
+    return `${n} B`;
+}
+
+// describeBackupSchedule: lịch sao lưu → câu tiếng Việt.
+function describeBackupSchedule(schedule, latest) {
+    const s = schedule || {};
+    const hour = s.hour === undefined || s.hour === null ? 3 : s.hour;
+    const keep = s.keep === undefined || s.keep === null ? 14 : s.keep;
+    const when = s.enabled === false ? 'Sao lưu tự động đang tắt' : `Tự động lúc ${String(hour).padStart(2, '0')}:00 hằng ngày, giữ ${keep} bản`;
+    return latest ? `${when} · Bản mới nhất: ${latest.name} (${formatBackupSize(latest.size_bytes)}, ${opsDateTime(latest.mod_time)})` : `${when} · Chưa có bản nào`;
+}
+
+function loadBackups() {
+    return $.get('/api/v1/admin/backups').done(function (response) {
+        opsState.backups = { items: response.items || [], schedule: response.schedule || {} };
+        renderBackups();
+    }).fail(function () {
+        opsState.backups = { items: [], schedule: {} };
+        renderBackups();
+    });
+}
+
+async function downloadAuthed(url, filename) {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } });
+    if (!response.ok) throw new Error('download failed');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(await response.blob());
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
+function renderBackups() {
+    const items = opsState.backups.items || [];
+    $('#ops-backup-summary').text(describeBackupSchedule(opsState.backups.schedule, items[0]));
+    const body = $('#ops-backup-body').empty();
+    if (!items.length) body.append($('<tr>').append($('<td>').attr('colspan', 4).append(opsElement('div', 'ops-empty', 'Chưa có bản sao lưu nào.'))));
+    items.forEach(item => {
+        const tr = $('<tr>');
+        tr.append($('<td>').addClass('mono').text(item.name));
+        tr.append($('<td>').text(formatBackupSize(item.size_bytes)));
+        tr.append($('<td>').text(opsDateTime(item.mod_time)));
+        const btn = $('<button>').addClass('btn btn-outline-secondary btn-sm').text('Tải').on('click', function () {
+            btn.prop('disabled', true);
+            downloadAuthed(`/api/v1/admin/backups/${encodeURIComponent(item.name)}`, item.name).catch(() => $('#ops-backup-status').text('Không tải được bản sao lưu.')).finally(() => btn.prop('disabled', false));
+        });
+        tr.append($('<td>').addClass('text-end').append(btn));
+        body.append(tr);
+    });
+    const select = $('#restore-name');
+    select.find('option:not(:first)').remove();
+    items.forEach(item => select.append($('<option>').val(item.name).text(`${item.name} (${formatBackupSize(item.size_bytes)})`)));
+}
+
+// waitForRestart: chờ ~3 s cho app thoát, rồi poll /ping mỗi 2 s tối đa 60 s. Trả true nếu sống lại.
+async function waitForRestart(pingFn, sleepFn) {
+    await sleepFn(3000);
+    for (let i = 0; i < 30; i++) {
+        try {
+            if (await pingFn()) return true;
+        } catch (_) { /* chưa dậy */ }
+        await sleepFn(2000);
+    }
+    return false;
+}
+
 function renderReportPreview() {
     const rep = opsState.report || { rows: [], totals: {} };
     const summary = Object.assign({}, rep.totals || {});
@@ -1265,7 +1337,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
@@ -1364,6 +1436,50 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             button.prop('disabled', false).html('<i class="bi bi-database-down"></i> Sao lưu dữ liệu');
         }
     });
+    $('#btn-backup-run').click(function () {
+        const button = $(this).prop('disabled', true);
+        const status = $('#ops-backup-status').text('Đang sao lưu…');
+        $.ajax({ url: '/api/v1/admin/backups/run', method: 'POST' }).done(function (res) {
+            status.text(`Đã sao lưu ${res.name} (${formatBackupSize(res.size_bytes)})${res.pruned && res.pruned.length ? `, xoá ${res.pruned.length} bản cũ` : ''}.`);
+            loadBackups();
+        }).fail(function (xhr) {
+            status.text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Sao lưu thất bại.');
+        }).always(function () { button.prop('disabled', false); });
+    });
+    $('#btn-restore-open').click(function () {
+        $('#restore-status').text('');
+        $('#restore-file').val('');
+        $('#btn-restore-confirm').prop('disabled', false);
+        loadBackups().always(() => $('#restoreModal').modal('show'));
+    });
+    $('#btn-restore-confirm').click(async function () {
+        const button = $(this);
+        const status = $('#restore-status');
+        const name = $('#restore-name').val();
+        const file = $('#restore-file')[0].files[0];
+        if (!name && !file) { status.text('Chọn một bản có sẵn hoặc tải file lên.'); return; }
+        button.prop('disabled', true);
+        status.text('Đang kiểm tra file…');
+        try {
+            let response;
+            const headers = { Authorization: `Bearer ${auth.token}` };
+            if (name) {
+                response = await fetch('/api/v1/admin/restore', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, headers), body: JSON.stringify({ name }) });
+            } else {
+                const form = new FormData();
+                form.append('file', file);
+                response = await fetch('/api/v1/admin/restore', { method: 'POST', headers, body: form });
+            }
+            const data = await response.json().catch(() => ({}));
+            if (response.status !== 202) throw new Error(data.error || 'Khôi phục thất bại.');
+            status.text(data.service ? 'Đã xếp lịch khôi phục, đang khởi động lại…' : 'Đã xếp lịch khôi phục. Ứng dụng không chạy dưới service: hãy khởi động lại smsie.exe tay, trang sẽ tự tải lại khi app sống.');
+            const alive = await waitForRestart(() => fetch('/ping', { cache: 'no-store' }).then(r => r.ok), ms => new Promise(r => setTimeout(r, ms)));
+            if (alive) window.location.reload(); else status.text('Chưa thấy ứng dụng sống lại sau 60 giây. Kiểm tra service rồi tải lại trang.');
+        } catch (err) {
+            status.text(err.message || 'Khôi phục thất bại.');
+            button.prop('disabled', false);
+        }
+    });
     $('#sms-search').on('input', function () {
         renderConversationInbox(opsState.currentMessages || []);
     });
@@ -1380,7 +1496,7 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             opsState.auditPage = 1;
             loadAudit();
         }
-        if (route.view === 'reports') loadMonthlyReport();
+        if (route.view === 'reports') { loadMonthlyReport(); loadBackups(); }
     });
     if (auth.username && ['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(window.currentAppRoute().view)) {
         loadOperationsData();

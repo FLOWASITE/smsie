@@ -615,7 +615,7 @@
                 <input type="month" id="report-month" class="form-control" aria-label="Tháng báo cáo" />
                 <button id="btn-report-csv" class="btn btn-outline-secondary"><i class="bi bi-filetype-csv"></i> Tải CSV tháng</button>
                 <button id="btn-backup-database" class="btn btn-dark"><i class="bi bi-database-down"></i> Sao lưu dữ liệu</button>
-                <button class="btn btn-outline-secondary" disabled title="Sẽ bật sau khi Windows Service hỗ trợ restart an toàn"><i class="bi bi-database-up"></i> Khôi phục</button>
+                <button id="btn-restore-open" class="btn btn-outline-secondary"><i class="bi bi-database-up"></i> Khôi phục</button>
               </div>
             </header>
             <div id="ops-report-kpis" class="ops-kpi-grid"></div>
@@ -623,6 +623,16 @@
             <div class="ops-dashboard-grid report-grid">
               <section class="ops-panel"><div id="ops-message-chart" class="chart-shell"></div></section>
               <section class="ops-panel"><div id="ops-health-breakdown"></div></section>
+            </div>
+            <div class="ops-panel mt-3">
+              <div class="ops-panel-head"><h2>Sao lưu</h2><button id="btn-backup-run" class="btn btn-outline-secondary btn-sm"><i class="bi bi-cloud-arrow-down"></i> Sao lưu ngay</button></div>
+              <div id="ops-backup-summary" class="ops-list-note mb-2"></div>
+              <div class="table-responsive">
+                <table class="table ops-table align-middle mb-0">
+                  <thead><tr><th>Tên bản</th><th>Dung lượng</th><th>Thời gian</th><th></th></tr></thead>
+                  <tbody id="ops-backup-body"></tbody>
+                </table>
+              </div>
             </div>
             <div class="ops-panel mt-3">
               <div class="ops-panel-head"><h2>Theo SIM trong tháng</h2><div id="report-month-label" class="ops-list-note"></div></div>
@@ -830,6 +840,33 @@
           </section>
 
         </main>
+      </div>
+    </div>
+
+    <div class="modal fade" id="restoreModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Khôi phục dữ liệu</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label" for="restore-name">Chọn bản sao lưu có sẵn</label>
+              <select class="form-select" id="restore-name"><option value="">— Tải file lên thay vì chọn —</option></select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="restore-file">Hoặc tải file .db lên (tối đa 512 MB)</label>
+              <input type="file" class="form-control" id="restore-file" accept=".db" />
+            </div>
+            <div class="alert alert-warning mb-0">Ứng dụng sẽ khởi động lại (~10 giây). Dữ liệu hiện tại được chép sang <code>backups/pre-restore-*.db</code> trước khi thay; các thao tác đang chạy sẽ bị ngắt.</div>
+            <div id="restore-status" class="ops-list-note mt-2" role="status"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Huỷ</button>
+            <button id="btn-restore-confirm" class="btn btn-danger"><i class="bi bi-database-up"></i> Khôi phục và khởi động lại</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1140,7 +1177,7 @@
     <script src="/static/js/router.js?v=20260911-calls"></script>
     <script src="/static/js/app.js?v=20260911-calls-v4"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20260916-report"></script>
+    <script src="/static/js/operations-console.js?v=20260916-backup"></script>
   </body>
 </html>
 

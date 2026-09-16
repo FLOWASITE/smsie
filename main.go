@@ -17,6 +17,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/pccr10001/smsie/internal/api"
 	"github.com/pccr10001/smsie/internal/audit"
+	"github.com/pccr10001/smsie/internal/backup"
 	"github.com/pccr10001/smsie/internal/balance"
 	"github.com/pccr10001/smsie/internal/keepalive"
 	"github.com/pccr10001/smsie/internal/calling"
@@ -46,8 +47,28 @@ func main() {
 		logger.Log.Warnf("Failed to load MCC/MNC data: %v", err)
 	}
 
-	// 3. Init Database
+	// 3. Init Database — áp file khôi phục chờ (<dsn>.restore-pending) TRƯỚC khi mở DB.
+	sqliteDSN := ""
+	if config.AppConfig.Database.Driver != "mysql" {
+		if sqliteDSN = config.AppConfig.Database.DSN; sqliteDSN == "" {
+			sqliteDSN = "smsie_v2.db"
+		}
+	}
+	restored := false
+	if sqliteDSN != "" {
+		applied, err := backup.ApplyPending(sqliteDSN, config.AppConfig.Backup.Dir)
+		if err != nil {
+			logger.Log.Errorf("restore: %v", err)
+		}
+		if applied {
+			logger.Log.Warnf("restore: đã áp %s vào %s (bản cũ ở %s/pre-restore-*.db)", backup.StagePath(sqliteDSN), sqliteDSN, config.AppConfig.Backup.Dir)
+			restored = true
+		}
+	}
 	db := initDB()
+	if restored {
+		audit.Record(db, audit.Entry{Username: "system", Action: "restore.applied", Target: sqliteDSN, Status: 200})
+	}
 
 	// 4. Init Router
 	if config.AppConfig.Server.Mode == "release" {
@@ -123,6 +144,15 @@ func main() {
 	go sched.Run(schedStop)
 	ks := keepalive.NewService(db, wm, nil, webhookSvc, config.AppConfig.Keepalive)
 	go ks.Run(schedStop)
+	// Sao lưu hằng ngày (chỉ SQLite; không chạy lúc boot).
+	if config.AppConfig.Backup.Enabled {
+		if sqliteDSN == "" {
+			logger.Log.Warnf("backup: chỉ hỗ trợ SQLite, driver %s bỏ qua", config.AppConfig.Database.Driver)
+		} else {
+			bs := &backup.Scheduler{DB: db, Dir: config.AppConfig.Backup.Dir, Keep: config.AppConfig.Backup.Keep, Hour: config.AppConfig.Backup.Hour, Notify: webhookSvc.Broadcast}
+			go bs.Run(schedStop)
+		}
+	}
 	// Nhật ký hành động: dọn lúc khởi động + mỗi 24 h.
 	go func() {
 		for {
@@ -156,7 +186,7 @@ func main() {
 	wh := api.NewWebhookHandler(db)
 	uh := api.NewUserHandler(db)
 	akh := api.NewAPIKeyHandler(db)
-	backupHandler := api.NewAdminBackupHandler(db, config.AppConfig.Database.Driver)
+	backupHandler := api.NewAdminBackupHandler(db, config.AppConfig.Database.Driver, sqliteDSN, config.AppConfig.Backup)
 	auditHandler := api.NewAuditHandler(db)
 	reportHandler := api.NewReportHandler(db)
 	recordingHandler := api.NewCallRecordingHandler(db, "recordings")
@@ -223,6 +253,10 @@ func main() {
 				adminGroup.GET("/keepalive/runs", kah.Runs)
 				adminGroup.POST("/keepalive/run", kah.RunNow)
 				adminGroup.GET("/admin/backup", backupHandler.Download)
+				adminGroup.GET("/admin/backups", backupHandler.List)
+				adminGroup.POST("/admin/backups/run", backupHandler.RunNow)
+				adminGroup.GET("/admin/backups/:name", backupHandler.Get)
+				adminGroup.POST("/admin/restore", backupHandler.Restore)
 				adminGroup.GET("/audit", auditHandler.List)
 
 				adminGroup.GET("/users", uh.ListUsers)

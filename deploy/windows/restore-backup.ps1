@@ -5,11 +5,14 @@ param(
     [string]$BackupPath
 )
 
+# Khôi phục qua staging: kiểm header SQLite, chép thành <db>.restore-pending rồi khởi động lại
+# service. smsie.exe tự áp file pending lúc khởi động (kiểm integrity, chép bản cũ sang
+# backups/pre-restore-*.db, đổi tên) — script này KHÔNG thay file DB trực tiếp.
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $source = (Resolve-Path -LiteralPath $BackupPath).Path
 $database = Join-Path $root 'smsie.db'
-$backupDirectory = Join-Path $root 'backups'
+$pending = "$database.restore-pending"
 $serviceName = 'smsie'
 
 if ($source -eq $database) {
@@ -27,20 +30,12 @@ finally {
     $stream.Dispose()
 }
 
-New-Item -ItemType Directory -Path $backupDirectory -Force | Out-Null
-$rollback = Join-Path $backupDirectory ("pre-restore-{0}.db" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+Copy-Item -LiteralPath $source -Destination $pending -Force
 
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-if ($service -and $service.Status -ne 'Stopped') {
-    Stop-Service -Name $serviceName
-    $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
-}
-if (Test-Path -LiteralPath $database) {
-    Copy-Item -LiteralPath $database -Destination $rollback
-}
-Copy-Item -LiteralPath $source -Destination $database -Force
-
 if ($service) {
-    Start-Service -Name $serviceName
+    Restart-Service -Name $serviceName
+    Write-Output "Staged $pending and restarted $serviceName. Check logs/ for 'restore: đã áp'; rollback copy in backups/pre-restore-*.db"
+} else {
+    Write-Output "Staged $pending. Service $serviceName not installed: start smsie.exe manually to apply."
 }
-Write-Output "Restore complete. Rollback copy: $rollback"

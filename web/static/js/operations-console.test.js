@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -184,4 +184,19 @@ test('formatReportRow: số có dấu chấm nghìn, null → —, delta có d�
 test('localMonth: theo giờ máy, đệm 0', () => {
     assert.equal(localMonth(new Date(2026, 0, 1, 0, 30)), '2026-01');
     assert.equal(localMonth(new Date(2026, 8, 16)), '2026-09');
+});
+
+test('backup: dung lượng, lịch, poll /ping sau khi khởi động lại', async () => {
+    assert.equal(formatBackupSize(512), '512 B');
+    assert.equal(formatBackupSize(2048), '2 KB');
+    assert.equal(formatBackupSize(3 * 1024 * 1024), '3 MB');
+    assert.equal(describeBackupSchedule({ enabled: true, hour: 3, keep: 14 }), 'Tự động lúc 03:00 hằng ngày, giữ 14 bản · Chưa có bản nào');
+    assert.match(describeBackupSchedule({ enabled: false }, { name: 'smsie-20260916-030000.db', size_bytes: 1024, mod_time: '2026-09-16T03:00:00+07:00' }), /^Sao lưu tự động đang tắt · Bản mới nhất: smsie-20260916-030000.db \(1 KB/);
+    const calls = [];
+    let n = 0;
+    const alive = await waitForRestart(() => { n++; if (n < 3) throw new Error('down'); return true; }, ms => { calls.push(ms); return Promise.resolve(); });
+    assert.equal(alive, true);
+    assert.deepEqual(calls, [3000, 2000, 2000]);
+    const dead = await waitForRestart(() => false, () => Promise.resolve());
+    assert.equal(dead, false);
 });

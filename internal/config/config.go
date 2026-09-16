@@ -22,6 +22,15 @@ type Config struct {
 	PhoneLookup PhoneLookupConfig `mapstructure:"phone_lookup"`
 	// Audit — nhật ký hành động; KeepDays: giữ bao nhiêu ngày (dọn lúc khởi động + hằng ngày).
 	Audit AuditConfig `mapstructure:"audit"`
+	// Backup — sao lưu SQLite hằng ngày lúc Hour:00 vào Dir, giữ Keep bản mới nhất.
+	Backup BackupConfig `mapstructure:"backup"`
+}
+
+type BackupConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Dir     string `mapstructure:"dir"`
+	Hour    int    `mapstructure:"hour"`
+	Keep    int    `mapstructure:"keep"`
 }
 
 type AuditConfig struct {
@@ -146,6 +155,10 @@ func LoadConfig() {
 	viper.SetDefault("phone_lookup.enabled", true)
 	viper.SetDefault("phone_lookup.codes", map[string]string{"Viettel": "*098#", "Vinaphone": "*110#", "Mobifone": "*0#", "Vietnamobile": "*102#"})
 	viper.SetDefault("audit.keep_days", 365)
+	viper.SetDefault("backup.enabled", true)
+	viper.SetDefault("backup.dir", "backups")
+	viper.SetDefault("backup.hour", 3)
+	viper.SetDefault("backup.keep", 14)
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file not found, using defaults. Error: %v", err)
