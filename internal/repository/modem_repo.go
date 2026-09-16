@@ -62,3 +62,34 @@ func (r *ModemRepository) LastReceivedSMSAt() (map[string]time.Time, error) {
 	}
 	return out, err
 }
+
+// SetPhoneNumber ghi số mới nếu khác số hiện tại: UPDATE modems + INSERT phone_number_history
+// trong một transaction. Trả changed=false (không ghi gì) khi số không đổi.
+func (r *ModemRepository) SetPhoneNumber(iccid, phone, source string) (bool, error) {
+	changed := false
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var m model.Modem
+		if err := tx.First(&m, "iccid = ?", iccid).Error; err != nil {
+			return err
+		}
+		if m.PhoneNumber == phone {
+			return nil
+		}
+		if err := tx.Model(&model.Modem{}).Where("iccid = ?", iccid).Update("phone_number", phone).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&model.PhoneNumberHistory{ICCID: iccid, OldPhone: m.PhoneNumber, NewPhone: phone, Source: source, At: time.Now()}).Error; err != nil {
+			return err
+		}
+		changed = true
+		return nil
+	})
+	return changed, err
+}
+
+// PhoneHistory trả lịch sử đổi số, mới nhất trước.
+func (r *ModemRepository) PhoneHistory(iccid string) ([]model.PhoneNumberHistory, error) {
+	var rows []model.PhoneNumberHistory
+	err := r.db.Where("iccid = ?", iccid).Order("id DESC").Find(&rows).Error
+	return rows, err
+}

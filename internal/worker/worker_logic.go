@@ -369,7 +369,9 @@ func (w *ModemWorker) processPDU(raw string) error {
 	if !created {
 		return nil
 	}
-	w.captureBalance(content)
+	if !w.capturePhoneNumber(content) {
+		w.captureBalance(content)
+	}
 
 	// Trigger Webhook
 	w.webhookService.Dispatch(sms)

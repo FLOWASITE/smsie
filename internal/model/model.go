@@ -147,6 +147,16 @@ type SimSlotEvent struct {
 	PortName    string    `gorm:"size:32" json:"port_name,omitempty"`
 }
 
+// PhoneNumberHistory ghi mỗi lần modems.phone_number đổi (USSD tự tra hoặc sửa tay).
+type PhoneNumberHistory struct {
+	ID       uint      `gorm:"primaryKey" json:"id"`
+	ICCID    string    `gorm:"column:iccid;size:32;index" json:"iccid"`
+	OldPhone string    `gorm:"size:20" json:"old_phone,omitempty"`
+	NewPhone string    `gorm:"size:20" json:"new_phone,omitempty"`
+	Source   string    `gorm:"size:16" json:"source"` // ussd | manual
+	At       time.Time `gorm:"index" json:"at"`
+}
+
 // BalanceSnapshot là chuỗi số dư theo thời gian, ghi mỗi lần đọc được *101#.
 type BalanceSnapshot struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`

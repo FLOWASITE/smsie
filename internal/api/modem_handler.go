@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pccr10001/smsie/internal/calling"
 	"github.com/pccr10001/smsie/internal/model"
+	"github.com/pccr10001/smsie/internal/repository"
 	"github.com/pccr10001/smsie/internal/worker"
 	"gorm.io/gorm"
 )
@@ -467,7 +468,11 @@ func (h *ModemHandler) UpdateProfile(c *gin.Context) {
 
 	updates := map[string]interface{}{}
 	if req.PhoneNumber != nil {
-		updates["phone_number"] = *req.PhoneNumber
+		// Đi qua SetPhoneNumber để ghi lịch sử đổi số (source=manual).
+		if _, err := repository.NewModemRepository(h.db).SetPhoneNumber(iccid, *req.PhoneNumber, "manual"); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update phone number"})
+			return
+		}
 	}
 	if req.HardwarePath != nil {
 		updates["hardware_path"] = *req.HardwarePath
@@ -485,13 +490,15 @@ func (h *ModemHandler) UpdateProfile(c *gin.Context) {
 	if hasKaInterval {
 		updates["keepalive_interval"] = kaInterval
 	}
-	if len(updates) == 0 {
+	if len(updates) == 0 && req.PhoneNumber == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No profile fields supplied"})
 		return
 	}
-	if err := h.db.Model(&model.Modem{}).Where("iccid = ?", iccid).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update modem profile"})
-		return
+	if len(updates) > 0 {
+		if err := h.db.Model(&model.Modem{}).Where("iccid = ?", iccid).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update modem profile"})
+			return
+		}
 	}
 	h.db.First(&modem, "iccid = ?", iccid)
 	c.JSON(http.StatusOK, h.modemWithWorkerState(modem))
@@ -673,6 +680,44 @@ func (h *ModemHandler) CheckBalance(c *gin.Context) {
 		"method": "ussd",
 		"code":   "*101#",
 	})
+}
+
+// PhoneLookup gửi USSD tra số thuê bao (quyền send_at vì là lệnh AT chủ động); UI poll /modems/:iccid.
+func (h *ModemHandler) PhoneLookup(c *gin.Context) {
+	iccid := c.Param("iccid")
+	if !enforceICCIDPermission(c, h.db, iccid, PermSendAT) {
+		return
+	}
+	w := h.wm.GetWorkerByICCID(iccid)
+	if w == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "modem offline"})
+		return
+	}
+	if err := w.RequestPhoneNumber(); err != nil {
+		if errors.Is(err, worker.ErrNoPhoneLookupCode) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Phone lookup failed: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"status": "looking_up", "iccid": iccid, "method": "ussd"})
+}
+
+func (h *ModemHandler) PhoneHistory(c *gin.Context) {
+	iccid := c.Param("iccid")
+	if !enforceICCIDPermission(c, h.db, iccid, PermViewSMS) {
+		return
+	}
+	rows, err := repository.NewModemRepository(h.db).PhoneHistory(iccid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load phone history"})
+		return
+	}
+	if rows == nil {
+		rows = []model.PhoneNumberHistory{}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rows})
 }
 
 func (h *ModemHandler) executeCommand(c *gin.Context, timeout time.Duration) {

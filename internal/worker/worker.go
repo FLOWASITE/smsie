@@ -36,6 +36,8 @@ type ModemWorker struct {
 	busy               bool
 	balanceMu          sync.Mutex
 	balanceRequestedAt time.Time
+	phoneLookupMu      sync.Mutex
+	phoneLookupUntil   time.Time // cửa sổ bắt trả lời USSD tra số; zero = đóng
 	// lastRegisteredWrite chỉ do goroutine logicLoop (checkSignal) đọc/ghi → không cần mutex.
 	lastRegisteredWrite time.Time
 	modemMu            sync.RWMutex
@@ -506,6 +508,9 @@ func (w *ModemWorker) initModem() {
 					logger.Log.Warnf("[%s] Balance check after slot event failed: %v", w.PortName, err)
 				}
 			}
+			if regCode == "1" || regCode == "5" {
+				w.lookupPhoneIfMissing(iccid)
+			}
 		}
 
 	}()
@@ -555,7 +560,9 @@ func (w *ModemWorker) handleURC(line string) {
 		return
 	}
 	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(line)), "+CUSD:") {
-		w.captureBalance(line)
+		if !w.capturePhoneNumber(line) {
+			w.captureBalance(line)
+		}
 		return
 	}
 

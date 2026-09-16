@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -139,4 +139,13 @@ test('describeKeepalive: tắt → muted; failed/skipped ≤7 ngày → danger/w
 test('keepaliveNextRun: run_hour hôm nay nếu chưa qua, ngày mai nếu đã qua', () => {
     assert.equal(keepaliveNextRun(7, new Date('2026-09-16T05:30:00').getTime()).getTime(), new Date('2026-09-16T07:00:00').getTime());
     assert.equal(keepaliveNextRun(7, new Date('2026-09-16T07:00:00').getTime()).getTime(), new Date('2026-09-17T07:00:00').getTime());
+});
+
+test('describePhoneLookup: chưa bấm → Đọc số; đang đọc → busy; xong → số; hết giờ/lỗi → cảnh báo', () => {
+    assert.deepEqual(describePhoneLookup(undefined), { label: 'Đọc số', tone: 'muted', busy: false });
+    assert.deepEqual(describePhoneLookup({ state: 'checking' }), { label: 'Đang đọc số…', tone: 'muted', busy: true });
+    assert.deepEqual(describePhoneLookup({ state: 'done', phone: '0912345678' }), { label: 'Đã đọc: 0912345678', tone: 'ok', busy: false });
+    assert.equal(describePhoneLookup({ state: 'timeout' }).tone, 'warning');
+    assert.deepEqual(describePhoneLookup({ state: 'error', message: 'modem offline' }), { label: 'modem offline', tone: 'danger', busy: false });
+    assert.equal(describePhoneLookup({ state: 'error' }).label, 'Không gửi được yêu cầu đọc số');
 });

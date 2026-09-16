@@ -18,6 +18,13 @@ type Config struct {
 	Balance   BalanceConfig   `mapstructure:"balance"`
 	SimHealth SimHealthConfig `mapstructure:"sim_health"`
 	Keepalive KeepaliveConfig `mapstructure:"keepalive"`
+	// PhoneLookup — tự tra số thuê bao qua USSD theo nhà mạng (Codes: tên nhà mạng → mã).
+	PhoneLookup PhoneLookupConfig `mapstructure:"phone_lookup"`
+}
+
+type PhoneLookupConfig struct {
+	Enabled bool              `mapstructure:"enabled"`
+	Codes   map[string]string `mapstructure:"codes"`
 }
 
 // KeepaliveConfig — nuôi SIM bằng SMS nội mạng định kỳ. Tốn tiền nên Enabled mặc định false.
@@ -130,6 +137,8 @@ func LoadConfig() {
 	viper.SetDefault("keepalive.max_per_month", 3)
 	viper.SetDefault("keepalive.message", "keepalive {{.Date}}")
 	viper.SetDefault("keepalive.run_hour", 7)
+	viper.SetDefault("phone_lookup.enabled", true)
+	viper.SetDefault("phone_lookup.codes", map[string]string{"Viettel": "*098#", "Vinaphone": "*110#", "Mobifone": "*0#", "Vietnamobile": "*102#"})
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file not found, using defaults. Error: %v", err)

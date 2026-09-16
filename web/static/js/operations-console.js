@@ -6,6 +6,8 @@ const opsState = {
     slotTab: 'tray',
     phoneNumbers: {},
     balanceChecks: {},
+    phoneLookups: {},
+    phoneHistory: [],
     balanceStatus: [],
     simHealth: [],
     keepalive: { config: {}, items: [] },
@@ -550,6 +552,10 @@ function loadSlotEvents(iccid) {
     const to = $('#slot-events-to').val();
     if (from) params.from = from;
     if (to) params.to = to;
+    $.get(`/api/v1/modems/${encodeURIComponent(iccid)}/phone-history`).done(function (response) {
+        opsState.phoneHistory = response.data || [];
+        renderSlotHistory();
+    });
     return $.get('/api/v1/slot-events', params).done(function (response) {
         opsState.slotEvents = response.data || [];
         renderSlotHistory();
@@ -570,8 +576,10 @@ function renderSlotHistory() {
     card.append(opsElement('div', 'eyebrow', 'SIM · ICCID'));
     card.append(opsElement('h3', 'mono', route.iccid));
     const dl = $('<dl>').addClass('kv');
-    [['Số thuê bao', modem.phone_number || '—'], ['Số dư', opsBalanceLabel(modem)], ['Lần đảo', `${opsState.slotEvents.filter(e => e.event === 'moved').length} lần`]]
-        .forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
+    const rows = [['Số thuê bao', modem.phone_number || '—'], ['Số dư', opsBalanceLabel(modem)], ['Lần đảo', `${opsState.slotEvents.filter(e => e.event === 'moved').length} lần`]];
+    const previous = (opsState.phoneHistory || []).find(h => h.iccid === route.iccid && h.old_phone);
+    if (previous) rows.push(['Số trước', `${previous.old_phone} (${new Date(previous.at).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })})`]);
+    rows.forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
     card.append(dl);
     card.append(opsElement('div', 'now', bay
         ? [`Đang ở khe ${bay.slot_number || '— (chưa gán)'}`, bay.port_name, bay.status === 'online' ? 'trực tuyến' : 'ngoại tuyến'].filter(Boolean).join(' · ')
@@ -622,7 +630,10 @@ function renderBayCalibration() {
                 .done(loadOperationsData)
                 .fail(xhr => failMark(input, xhr, 'Không lưu được số thuê bao'));
         });
-        return td.append(input);
+        const { button, note } = phoneLookupButton(bay.current_iccid, bay.status === 'online');
+        td.append($('<div>').addClass('d-flex gap-1 align-items-center').append(input, button));
+        if (note) td.append(note);
+        return td;
     };
     const balances = opsBalanceByICCID();
     const thresholdCell = bay => {
@@ -735,6 +746,60 @@ function requestBalanceCheck(modem) {
         opsState.balanceChecks[modem.iccid] = { state: 'error' };
         renderOperationsConsole();
     });
+}
+
+// describePhoneLookup: trạng thái nút "Đọc số" (thuần, có test node).
+function describePhoneLookup(state) {
+    if (!state || !state.state) return { label: 'Đọc số', tone: 'muted', busy: false };
+    if (state.state === 'checking') return { label: 'Đang đọc số…', tone: 'muted', busy: true };
+    if (state.state === 'done') return { label: `Đã đọc: ${state.phone}`, tone: 'ok', busy: false };
+    if (state.state === 'timeout') return { label: 'Không nhận được số · thử lại', tone: 'warning', busy: false };
+    return { label: state.message || 'Không gửi được yêu cầu đọc số', tone: 'danger', busy: false };
+}
+
+function pollPhoneLookup(iccid, previousPhone, attempt) {
+    window.setTimeout(function () {
+        $.get(`/api/v1/modems/${encodeURIComponent(iccid)}`)
+            .done(function (fresh) {
+                if (fresh.phone_number && fresh.phone_number !== previousPhone) {
+                    opsState.phoneLookups[iccid] = { state: 'done', phone: fresh.phone_number };
+                    loadOperationsData();
+                    return;
+                }
+                if (attempt < 17) { pollPhoneLookup(iccid, previousPhone, attempt + 1); return; }
+                opsState.phoneLookups[iccid] = { state: 'timeout' };
+                renderOperationsConsole();
+            })
+            .fail(function () {
+                opsState.phoneLookups[iccid] = { state: 'error' };
+                renderOperationsConsole();
+            });
+    }, 5000);
+}
+
+function requestPhoneLookup(iccid) {
+    const current = opsState.phoneLookups[iccid];
+    if (current && current.state === 'checking') return;
+    const previousPhone = opsState.phoneNumbers[iccid] || '';
+    opsState.phoneLookups[iccid] = { state: 'checking' };
+    renderOperationsConsole();
+    $.ajax({ url: `/api/v1/modems/${encodeURIComponent(iccid)}/phone-lookup`, method: 'POST' })
+        .done(function () { pollPhoneLookup(iccid, previousPhone, 0); })
+        .fail(function (xhr) {
+            opsState.phoneLookups[iccid] = { state: 'error', message: xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gửi được yêu cầu đọc số' };
+            renderOperationsConsole();
+        });
+}
+
+// phoneLookupButton: nút "Đọc số" + dòng trạng thái inline (Hiệu chuẩn + Bảo trì).
+function phoneLookupButton(iccid, online) {
+    const d = describePhoneLookup(opsState.phoneLookups[iccid]);
+    const button = opsElement('button', 'btn btn-sm btn-outline-secondary phone-lookup').attr({ type: 'button', title: 'Gửi USSD tra số thuê bao' })
+        .html(`<i class="bi bi-telephone-plus"></i> ${d.busy ? 'Đang đọc…' : 'Đọc số'}`)
+        .prop('disabled', d.busy || !online)
+        .click(function (event) { event.stopPropagation(); requestPhoneLookup(iccid); });
+    const note = d.tone === 'muted' && !d.busy ? null : opsElement('small', `ops-list-note keepalive-result tone-${d.tone}`, d.label);
+    return { button, note };
 }
 
 function requestKeepaliveRun(item) {
@@ -859,6 +924,9 @@ function renderMaintenance() {
         });
         controls.append(balanceButton);
         if (isAdmin) {
+            const lookup = phoneLookupButton(modem.iccid, opsIsOnline(modem));
+            controls.append(lookup.button);
+            if (lookup.note) main.append(lookup.note);
             const runButton = opsElement('button', 'btn btn-sm btn-dark').attr('type', 'button').html('<i class="bi bi-send"></i> Nuôi ngay');
             runButton.prop('disabled', !configOn || !ka.enabled || !!(pending && pending.state === 'running'))
                 .attr('title', !configOn ? 'Công tắc tổng đang tắt trong config.yaml' : !ka.enabled ? 'Bật "Nuôi SIM" trước' : '')
@@ -1087,7 +1155,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {

@@ -62,3 +62,11 @@ keepalive:
   max_per_month: 3         # trần số lần gửi mỗi SIM mỗi tháng dương lịch
   message: "keepalive {{.Date}}"   # nội dung; {{.Date}} = yyyy-mm-dd
   run_hour: 7              # giờ chạy hằng ngày (sau giờ đọc số dư)
+
+phone_lookup:
+  enabled: true            # tự tra số thuê bao qua USSD khi SIM chưa có số (sau probe / đảo SIM)
+  codes:                   # theo tên nhà mạng worker đọc được (+COPS / mccmnc.json), so khớp không phân biệt hoa thường
+    Viettel: "*098#"
+    Vinaphone: "*110#"
+    Mobifone: "*0#"
+    Vietnamobile: "*102#"

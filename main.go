@@ -175,6 +175,8 @@ func main() {
 			authGroup.POST("/modems/:iccid/at", mh.ExecuteAT)
 			authGroup.POST("/modems/:iccid/input", mh.ExecuteInput)
 			authGroup.POST("/modems/:iccid/balance-check", mh.CheckBalance)
+			authGroup.POST("/modems/:iccid/phone-lookup", mh.PhoneLookup)
+			authGroup.GET("/modems/:iccid/phone-history", mh.PhoneHistory)
 			authGroup.GET("/modems/:iccid/call/state", mh.GetCallState)
 			authGroup.POST("/modems/:iccid/call/dial", mh.Dial)
 			authGroup.POST("/modems/:iccid/call/hangup", mh.Hangup)
@@ -296,7 +298,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.PhoneNumberHistory{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {
