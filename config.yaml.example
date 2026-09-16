@@ -62,3 +62,20 @@ keepalive:
   max_per_month: 3         # trần số lần gửi mỗi SIM mỗi tháng dương lịch
   message: "keepalive {{.Date}}"   # nội dung; {{.Date}} = yyyy-mm-dd
   run_hour: 7              # giờ chạy hằng ngày (sau giờ đọc số dư)
+
+phone_lookup:
+  enabled: true            # tự tra số thuê bao qua USSD khi SIM chưa có số (sau probe / đảo SIM)
+  codes:                   # theo tên nhà mạng worker đọc được (+COPS / mccmnc.json), so khớp không phân biệt hoa thường
+    Viettel: "*098#"
+    Vinaphone: "*110#"
+    Mobifone: "*0#"
+    Vietnamobile: "*102#"
+
+audit:
+  keep_days: 365           # giữ nhật ký hành động bao nhiêu ngày (dọn lúc khởi động + hằng ngày)
+
+backup:
+  enabled: true            # sao lưu SQLite tự động (chỉ driver sqlite)
+  dir: "backups"           # thư mục tương đối gốc app
+  hour: 3                  # giờ chạy hằng ngày (0-23), không chạy lúc khởi động
+  keep: 14                 # giữ N bản smsie-*.db mới nhất; pre-restore-*.db không bị xoá

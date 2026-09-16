@@ -7,6 +7,7 @@
   <startmode>Automatic</startmode>
   <delayedAutoStart>true</delayedAutoStart>
   <onfailure action="restart" delay="10 sec" />
+  <env name="SMSIE_SERVICE" value="1" />
   <logpath>%BASE%\..\..\logs</logpath>
   <log mode="roll" />
 </service>

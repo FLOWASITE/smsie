@@ -30,7 +30,7 @@ func newTest(t *testing.T, enabled bool) (*Service, *fakeSender, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.Webhook{}, &model.SimAlert{}, &model.KeepaliveRun{}); err != nil {
+	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.Webhook{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.AuditLog{}); err != nil {
 		t.Fatal(err)
 	}
 	seen := time.Now().Add(-30 * 24 * time.Hour)
@@ -74,6 +74,10 @@ func TestDueWithTargetSends(t *testing.T) {
 	}
 	if len(fs.calls) != 1 || fs.calls[0] != "A→0900000002: keepalive 2026-09-16" {
 		t.Fatalf("calls = %v", fs.calls)
+	}
+	var al model.AuditLog
+	if err := db.First(&al).Error; err != nil || al.Username != "system" || al.Action != "keepalive.send" || al.ICCID != "A" || al.Target != "0900000002" || al.Status != 200 {
+		t.Fatalf("audit = %+v, err = %v", al, err)
 	}
 	if alertCount(db) != 0 {
 		t.Fatal("sent không được tạo alert")

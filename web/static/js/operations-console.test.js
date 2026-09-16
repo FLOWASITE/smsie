@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -139,4 +139,64 @@ test('describeKeepalive: tắt → muted; failed/skipped ≤7 ngày → danger/w
 test('keepaliveNextRun: run_hour hôm nay nếu chưa qua, ngày mai nếu đã qua', () => {
     assert.equal(keepaliveNextRun(7, new Date('2026-09-16T05:30:00').getTime()).getTime(), new Date('2026-09-16T07:00:00').getTime());
     assert.equal(keepaliveNextRun(7, new Date('2026-09-16T07:00:00').getTime()).getTime(), new Date('2026-09-17T07:00:00').getTime());
+});
+
+test('describePhoneLookup: chưa bấm → Đọc số; đang đọc → busy; xong → số; hết giờ/lỗi → cảnh báo', () => {
+    assert.deepEqual(describePhoneLookup(undefined), { label: 'Đọc số', tone: 'muted', busy: false });
+    assert.deepEqual(describePhoneLookup({ state: 'checking' }), { label: 'Đang đọc số…', tone: 'muted', busy: true });
+    assert.deepEqual(describePhoneLookup({ state: 'done', phone: '0912345678' }), { label: 'Đã đọc: 0912345678', tone: 'ok', busy: false });
+    assert.equal(describePhoneLookup({ state: 'timeout' }).tone, 'warning');
+    assert.deepEqual(describePhoneLookup({ state: 'error', message: 'modem offline' }), { label: 'modem offline', tone: 'danger', busy: false });
+    assert.equal(describePhoneLookup({ state: 'error' }).label, 'Không gửi được yêu cầu đọc số');
+});
+
+test('describeAudit: nhãn Việt cho mã hành động, mã lạ trả nguyên', () => {
+    assert.equal(describeAudit('sms.send'), 'Gửi SMS');
+    assert.equal(describeAudit('keepalive.send'), 'Nuôi SIM (tự động)');
+    assert.equal(describeAudit('auth.password'), 'Đổi mật khẩu');
+    assert.equal(describeAudit('POST /api/v1/modems/:iccid/scan'), 'POST /api/v1/modems/:iccid/scan');
+    assert.equal(describeAudit(undefined), '—');
+});
+
+test('auditCsv: tiêu đề + nhãn Việt + escape dấu nháy', () => {
+    const csv = auditCsv([{ at: '2026-09-16T10:00:00Z', username: 'alice', action: 'sms.send', iccid: '89', target: '0912', status: 200, ip: '::1', detail: '{"message":"a \"b\""}' }]);
+    const lines = csv.split('\r\n');
+    assert.equal(lines[0], '"at","username","action","label","iccid","target","status","ip","detail"');
+    assert.equal(lines[1], '"2026-09-16T10:00:00Z","alice","sms.send","Gửi SMS","89","0912","200","::1","{""message"":""a ""b""""}"');
+});
+
+test('formatReportRow: số có dấu chấm nghìn, null → —, delta có dấu', () => {
+    const f = formatReportRow({ iccid: '89', phone_number: '0911', slot_number: 3, sms_received: 1200, sms_sent: 5, sms_failed: 0, calls: 2, call_seconds: 75, balance_start: 50000, balance_end: 35000, balance_delta: -15000, slot_events: 1, keepalive_sent: 1, alerts: 2 });
+    assert.equal(f.slot, '#3');
+    assert.equal(f.smsReceived, '1.200');
+    assert.equal(f.callMinutes, '1,3');
+    assert.equal(f.balanceDelta, '-15.000');
+    assert.equal(f.deltaTone, 'text-danger');
+    const empty = formatReportRow({ iccid: 'x', slot_number: null, balance_start: null, balance_end: null, balance_delta: null });
+    assert.equal(empty.slot, '—');
+    assert.equal(empty.phone, '—');
+    assert.equal(empty.balanceStart, '—');
+    assert.equal(empty.balanceDelta, '—');
+    assert.equal(empty.smsReceived, '0');
+    assert.equal(formatReportRow({ balance_delta: 500 }).balanceDelta, '+500');
+});
+
+test('localMonth: theo giờ máy, đệm 0', () => {
+    assert.equal(localMonth(new Date(2026, 0, 1, 0, 30)), '2026-01');
+    assert.equal(localMonth(new Date(2026, 8, 16)), '2026-09');
+});
+
+test('backup: dung lượng, lịch, poll /ping sau khi khởi động lại', async () => {
+    assert.equal(formatBackupSize(512), '512 B');
+    assert.equal(formatBackupSize(2048), '2 KB');
+    assert.equal(formatBackupSize(3 * 1024 * 1024), '3 MB');
+    assert.equal(describeBackupSchedule({ enabled: true, hour: 3, keep: 14 }), 'Tự động lúc 03:00 hằng ngày, giữ 14 bản · Chưa có bản nào');
+    assert.match(describeBackupSchedule({ enabled: false }, { name: 'smsie-20260916-030000.db', size_bytes: 1024, mod_time: '2026-09-16T03:00:00+07:00' }), /^Sao lưu tự động đang tắt · Bản mới nhất: smsie-20260916-030000.db \(1 KB/);
+    const calls = [];
+    let n = 0;
+    const alive = await waitForRestart(() => { n++; if (n < 3) throw new Error('down'); return true; }, ms => { calls.push(ms); return Promise.resolve(); });
+    assert.equal(alive, true);
+    assert.deepEqual(calls, [3000, 2000, 2000]);
+    const dead = await waitForRestart(() => false, () => Promise.resolve());
+    assert.equal(dead, false);
 });

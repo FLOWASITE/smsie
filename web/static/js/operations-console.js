@@ -6,6 +6,13 @@ const opsState = {
     slotTab: 'tray',
     phoneNumbers: {},
     balanceChecks: {},
+    phoneLookups: {},
+    phoneHistory: [],
+    audit: [],
+    auditTotal: 0,
+    auditPage: 1,
+    report: { month: '', rows: [], totals: {} },
+    backups: { items: [], schedule: {} },
     balanceStatus: [],
     simHealth: [],
     keepalive: { config: {}, items: [] },
@@ -550,10 +557,13 @@ function loadSlotEvents(iccid) {
     const to = $('#slot-events-to').val();
     if (from) params.from = from;
     if (to) params.to = to;
+    $.get(`/api/v1/modems/${encodeURIComponent(iccid)}/phone-history`).done(function (response) {
+        opsState.phoneHistory = response.data || [];
+        renderSlotHistory();
+    });
     return $.get('/api/v1/slot-events', params).done(function (response) {
         opsState.slotEvents = response.data || [];
         renderSlotHistory();
-        renderAuditPreview();
     });
 }
 
@@ -570,8 +580,10 @@ function renderSlotHistory() {
     card.append(opsElement('div', 'eyebrow', 'SIM · ICCID'));
     card.append(opsElement('h3', 'mono', route.iccid));
     const dl = $('<dl>').addClass('kv');
-    [['Số thuê bao', modem.phone_number || '—'], ['Số dư', opsBalanceLabel(modem)], ['Lần đảo', `${opsState.slotEvents.filter(e => e.event === 'moved').length} lần`]]
-        .forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
+    const rows = [['Số thuê bao', modem.phone_number || '—'], ['Số dư', opsBalanceLabel(modem)], ['Lần đảo', `${opsState.slotEvents.filter(e => e.event === 'moved').length} lần`]];
+    const previous = (opsState.phoneHistory || []).find(h => h.iccid === route.iccid && h.old_phone);
+    if (previous) rows.push(['Số trước', `${previous.old_phone} (${new Date(previous.at).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })})`]);
+    rows.forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
     card.append(dl);
     card.append(opsElement('div', 'now', bay
         ? [`Đang ở khe ${bay.slot_number || '— (chưa gán)'}`, bay.port_name, bay.status === 'online' ? 'trực tuyến' : 'ngoại tuyến'].filter(Boolean).join(' · ')
@@ -622,7 +634,10 @@ function renderBayCalibration() {
                 .done(loadOperationsData)
                 .fail(xhr => failMark(input, xhr, 'Không lưu được số thuê bao'));
         });
-        return td.append(input);
+        const { button, note } = phoneLookupButton(bay.current_iccid, bay.status === 'online');
+        td.append($('<div>').addClass('d-flex gap-1 align-items-center').append(input, button));
+        if (note) td.append(note);
+        return td;
     };
     const balances = opsBalanceByICCID();
     const thresholdCell = bay => {
@@ -735,6 +750,60 @@ function requestBalanceCheck(modem) {
         opsState.balanceChecks[modem.iccid] = { state: 'error' };
         renderOperationsConsole();
     });
+}
+
+// describePhoneLookup: trạng thái nút "Đọc số" (thuần, có test node).
+function describePhoneLookup(state) {
+    if (!state || !state.state) return { label: 'Đọc số', tone: 'muted', busy: false };
+    if (state.state === 'checking') return { label: 'Đang đọc số…', tone: 'muted', busy: true };
+    if (state.state === 'done') return { label: `Đã đọc: ${state.phone}`, tone: 'ok', busy: false };
+    if (state.state === 'timeout') return { label: 'Không nhận được số · thử lại', tone: 'warning', busy: false };
+    return { label: state.message || 'Không gửi được yêu cầu đọc số', tone: 'danger', busy: false };
+}
+
+function pollPhoneLookup(iccid, previousPhone, attempt) {
+    window.setTimeout(function () {
+        $.get(`/api/v1/modems/${encodeURIComponent(iccid)}`)
+            .done(function (fresh) {
+                if (fresh.phone_number && fresh.phone_number !== previousPhone) {
+                    opsState.phoneLookups[iccid] = { state: 'done', phone: fresh.phone_number };
+                    loadOperationsData();
+                    return;
+                }
+                if (attempt < 17) { pollPhoneLookup(iccid, previousPhone, attempt + 1); return; }
+                opsState.phoneLookups[iccid] = { state: 'timeout' };
+                renderOperationsConsole();
+            })
+            .fail(function () {
+                opsState.phoneLookups[iccid] = { state: 'error' };
+                renderOperationsConsole();
+            });
+    }, 5000);
+}
+
+function requestPhoneLookup(iccid) {
+    const current = opsState.phoneLookups[iccid];
+    if (current && current.state === 'checking') return;
+    const previousPhone = opsState.phoneNumbers[iccid] || '';
+    opsState.phoneLookups[iccid] = { state: 'checking' };
+    renderOperationsConsole();
+    $.ajax({ url: `/api/v1/modems/${encodeURIComponent(iccid)}/phone-lookup`, method: 'POST' })
+        .done(function () { pollPhoneLookup(iccid, previousPhone, 0); })
+        .fail(function (xhr) {
+            opsState.phoneLookups[iccid] = { state: 'error', message: xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gửi được yêu cầu đọc số' };
+            renderOperationsConsole();
+        });
+}
+
+// phoneLookupButton: nút "Đọc số" + dòng trạng thái inline (Hiệu chuẩn + Bảo trì).
+function phoneLookupButton(iccid, online) {
+    const d = describePhoneLookup(opsState.phoneLookups[iccid]);
+    const button = opsElement('button', 'btn btn-sm btn-outline-secondary phone-lookup').attr({ type: 'button', title: 'Gửi USSD tra số thuê bao' })
+        .html(`<i class="bi bi-telephone-plus"></i> ${d.busy ? 'Đang đọc…' : 'Đọc số'}`)
+        .prop('disabled', d.busy || !online)
+        .click(function (event) { event.stopPropagation(); requestPhoneLookup(iccid); });
+    const note = d.tone === 'muted' && !d.busy ? null : opsElement('small', `ops-list-note keepalive-result tone-${d.tone}`, d.label);
+    return { button, note };
 }
 
 function requestKeepaliveRun(item) {
@@ -859,6 +928,9 @@ function renderMaintenance() {
         });
         controls.append(balanceButton);
         if (isAdmin) {
+            const lookup = phoneLookupButton(modem.iccid, opsIsOnline(modem));
+            controls.append(lookup.button);
+            if (lookup.note) main.append(lookup.note);
             const runButton = opsElement('button', 'btn btn-sm btn-dark').attr('type', 'button').html('<i class="bi bi-send"></i> Nuôi ngay');
             runButton.prop('disabled', !configOn || !ka.enabled || !!(pending && pending.state === 'running'))
                 .attr('title', !configOn ? 'Công tắc tổng đang tắt trong config.yaml' : !ka.enabled ? 'Bật "Nuôi SIM" trước' : '')
@@ -889,12 +961,132 @@ function renderAlertCenter() {
     });
 }
 
+// formatReportRow: một dòng báo cáo tháng → chuỗi hiển thị (thuần, có test node). null → '—'.
+function formatReportRow(row) {
+    const r = row || {};
+    const num = v => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('vi-VN');
+    const delta = r.balance_delta;
+    return {
+        slot: r.slot_number === null || r.slot_number === undefined ? '—' : `#${r.slot_number}`,
+        iccid: r.iccid || '—',
+        phone: r.phone_number || '—',
+        smsReceived: num(r.sms_received || 0),
+        smsSent: num(r.sms_sent || 0),
+        smsFailed: num(r.sms_failed || 0),
+        calls: num(r.calls || 0),
+        callMinutes: (Math.round(((r.call_seconds || 0) / 60) * 10) / 10).toLocaleString('vi-VN'),
+        balanceStart: num(r.balance_start),
+        balanceEnd: num(r.balance_end),
+        balanceDelta: delta === null || delta === undefined ? '—' : (delta > 0 ? '+' : '') + num(delta),
+        deltaTone: delta === null || delta === undefined ? '' : delta < 0 ? 'text-danger' : delta > 0 ? 'text-success' : '',
+        slotEvents: num(r.slot_events || 0),
+        keepaliveSent: num(r.keepalive_sent || 0),
+        alerts: num(r.alerts || 0)
+    };
+}
+
+// localMonth: YYYY-MM theo giờ máy (toISOString là UTC → sai ngày 1 trước 7h sáng).
+function localMonth(d) {
+    d = d || new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function currentReportMonth() {
+    return $('#report-month').val() || localMonth();
+}
+
+function loadMonthlyReport() {
+    return $.get('/api/v1/reports/monthly', { month: currentReportMonth() }).done(function (response) {
+        opsState.report = { month: response.month, rows: response.rows || [], totals: response.totals || {} };
+        renderReportPreview();
+    }).fail(function () {
+        opsState.report = { month: currentReportMonth(), rows: [], totals: {} };
+        renderReportPreview();
+    });
+}
+
+// formatBackupSize: byte → chuỗi đọc được (thuần, có test node).
+function formatBackupSize(bytes) {
+    const n = Number(bytes || 0);
+    if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} MB`;
+    if (n >= 1024) return `${Math.round(n / 1024).toLocaleString('vi-VN')} KB`;
+    return `${n} B`;
+}
+
+// describeBackupSchedule: lịch sao lưu → câu tiếng Việt.
+function describeBackupSchedule(schedule, latest) {
+    const s = schedule || {};
+    const hour = s.hour === undefined || s.hour === null ? 3 : s.hour;
+    const keep = s.keep === undefined || s.keep === null ? 14 : s.keep;
+    const when = s.enabled === false ? 'Sao lưu tự động đang tắt' : `Tự động lúc ${String(hour).padStart(2, '0')}:00 hằng ngày, giữ ${keep} bản`;
+    return latest ? `${when} · Bản mới nhất: ${latest.name} (${formatBackupSize(latest.size_bytes)}, ${opsDateTime(latest.mod_time)})` : `${when} · Chưa có bản nào`;
+}
+
+function loadBackups() {
+    return $.get('/api/v1/admin/backups').done(function (response) {
+        opsState.backups = { items: response.items || [], schedule: response.schedule || {} };
+        renderBackups();
+    }).fail(function () {
+        opsState.backups = { items: [], schedule: {} };
+        renderBackups();
+    });
+}
+
+async function downloadAuthed(url, filename) {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } });
+    if (!response.ok) throw new Error('download failed');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(await response.blob());
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
+function renderBackups() {
+    const items = opsState.backups.items || [];
+    $('#ops-backup-summary').text(describeBackupSchedule(opsState.backups.schedule, items[0]));
+    const body = $('#ops-backup-body').empty();
+    if (!items.length) body.append($('<tr>').append($('<td>').attr('colspan', 4).append(opsElement('div', 'ops-empty', 'Chưa có bản sao lưu nào.'))));
+    items.forEach(item => {
+        const tr = $('<tr>');
+        tr.append($('<td>').addClass('mono').text(item.name));
+        tr.append($('<td>').text(formatBackupSize(item.size_bytes)));
+        tr.append($('<td>').text(opsDateTime(item.mod_time)));
+        const btn = $('<button>').addClass('btn btn-outline-secondary btn-sm').text('Tải').on('click', function () {
+            btn.prop('disabled', true);
+            downloadAuthed(`/api/v1/admin/backups/${encodeURIComponent(item.name)}`, item.name).catch(() => $('#ops-backup-status').text('Không tải được bản sao lưu.')).finally(() => btn.prop('disabled', false));
+        });
+        tr.append($('<td>').addClass('text-end').append(btn));
+        body.append(tr);
+    });
+    const select = $('#restore-name');
+    select.find('option:not(:first)').remove();
+    items.forEach(item => select.append($('<option>').val(item.name).text(`${item.name} (${formatBackupSize(item.size_bytes)})`)));
+}
+
+// waitForRestart: chờ ~3 s cho app thoát, rồi poll /ping mỗi 2 s tối đa 60 s. Trả true nếu sống lại.
+async function waitForRestart(pingFn, sleepFn) {
+    await sleepFn(3000);
+    for (let i = 0; i < 30; i++) {
+        try {
+            if (await pingFn()) return true;
+        } catch (_) { /* chưa dậy */ }
+        await sleepFn(2000);
+    }
+    return false;
+}
+
 function renderReportPreview() {
-    const summary = summarizeOpsData(opsState.modems, opsState.messages);
+    const rep = opsState.report || { rows: [], totals: {} };
+    const summary = Object.assign({}, rep.totals || {});
+    summary.received = summary.sms_received || 0;
+    summary.sent = summary.sms_sent || 0;
+    summary.failed = summary.sms_failed || 0;
+    summary.messageTotal = summary.received + summary.sent;
     const cards = [
-        { label: 'Tổng SMS', value: summary.messageTotal, note: 'Trong dữ liệu hiện có', icon: 'bi-chat-square-dots', tone: 'blue' },
-        { label: 'Tin nhận', value: summary.received, note: `${summary.unread} tin chưa đọc`, icon: 'bi-arrow-down-left-circle', tone: 'mint' },
-        { label: 'Tin đã gửi', value: summary.sent, note: `${summary.delivered} đã giao`, icon: 'bi-send-check', tone: 'green' },
+        { label: 'Tổng SMS', value: summary.messageTotal, note: `Tháng ${rep.month || currentReportMonth()}`, icon: 'bi-chat-square-dots', tone: 'blue' },
+        { label: 'Tin nhận', value: summary.received, note: `${(rep.rows || []).length} SIM`, icon: 'bi-arrow-down-left-circle', tone: 'mint' },
+        { label: 'Tin đã gửi', value: summary.sent, note: `${summary.keepalive_sent || 0} tin nuôi SIM`, icon: 'bi-send-check', tone: 'green' },
         { label: 'Gửi lỗi', value: summary.failed, note: 'Không tự động gửi lại', icon: 'bi-exclamation-octagon', tone: 'coral' }
     ];
     const kpis = $('#ops-report-kpis').empty();
@@ -912,11 +1104,10 @@ function renderReportPreview() {
     const chart = $('#ops-message-chart').empty();
     chart.append(opsElement('div', 'eyebrow', 'Vòng đời tin nhắn'));
     chart.append(opsElement('h2', '', 'Trạng thái SMS'));
-    const max = Math.max(summary.received, summary.sent, summary.delivered, summary.failed, 1);
+    const max = Math.max(summary.received, summary.sent, summary.failed, 1);
     [
         ['Tin nhận', summary.received, 'received'],
         ['Đã gửi', summary.sent, 'sent'],
-        ['Đã giao', summary.delivered, 'delivered'],
         ['Thất bại', summary.failed, 'failed']
     ].forEach(([label, value, status]) => {
         const row = opsElement('div', 'chart-row');
@@ -926,6 +1117,26 @@ function renderReportPreview() {
         row.append(track, opsElement('div', 'chart-value', String(value)));
         chart.append(row);
     });
+
+    const body = $('#ops-report-body').empty();
+    const foot = $('#ops-report-foot').empty();
+    $('#report-month-label').text(`Tháng ${rep.month || currentReportMonth()}`);
+    const cells = f => [f.slot, f.iccid, f.phone, f.smsReceived, f.smsSent, f.smsFailed, f.calls, f.callMinutes, f.balanceStart, f.balanceEnd, f.balanceDelta, f.slotEvents, f.keepaliveSent, f.alerts];
+    if (!(rep.rows || []).length) {
+        body.append($('<tr>').append($('<td>').attr('colspan', 14).append(opsElement('div', 'ops-empty', 'Không có SIM nào trong tháng này.'))));
+    }
+    (rep.rows || []).forEach(row => {
+        const f = formatReportRow(row);
+        const tr = $('<tr>');
+        cells(f).forEach((value, i) => tr.append($('<td>').toggleClass('mono', i === 1).toggleClass(f.deltaTone, i === 10 && !!f.deltaTone).text(value)));
+        body.append(tr);
+    });
+    if ((rep.rows || []).length) {
+        const f = formatReportRow(Object.assign({}, rep.totals, { iccid: 'Tổng', phone_number: '', slot_number: null }));
+        const tr = $('<tr>').addClass('fw-semibold');
+        cells(f).forEach((value, i) => tr.append($('<td>').toggleClass(f.deltaTone, i === 10 && !!f.deltaTone).text(i === 0 || i === 2 ? '' : value)));
+        foot.append(tr);
+    }
 
     const health = $('#ops-health-breakdown').empty();
     health.append(opsElement('div', 'eyebrow', 'Sức khỏe SIM'));
@@ -944,30 +1155,70 @@ function renderReportPreview() {
     });
 }
 
-function renderAuditPreview() {
+// describeAudit: nhãn Việt cho mã hành động (thuần, có test node). Mã lạ → trả nguyên.
+const AUDIT_LABELS = {
+    'sms.send': 'Gửi SMS', 'call.dial': 'Gọi đi', 'call.hangup': 'Ngắt cuộc gọi', 'at.exec': 'Lệnh AT',
+    'balance.check': 'Đọc số dư', 'balance.run': 'Đọc số dư toàn bộ', 'phone.lookup': 'Đọc số thuê bao',
+    'modem.reboot': 'Khởi động lại modem', 'modem.profile': 'Sửa hồ sơ SIM', 'bay.assign': 'Gán khe',
+    'keepalive.run': 'Nuôi SIM (tay)', 'keepalive.send': 'Nuôi SIM (tự động)',
+    'user.create': 'Tạo người dùng', 'user.delete': 'Xoá người dùng', 'user.permissions': 'Đổi quyền người dùng',
+    'apikey.create': 'Tạo API key', 'apikey.rotate': 'Xoay API key', 'apikey.delete': 'Xoá API key',
+    'webhook.create': 'Tạo webhook', 'webhook.delete': 'Xoá webhook', 'auth.password': 'Đổi mật khẩu',
+    'backup.ok': 'Sao lưu thành công', 'backup.failed': 'Sao lưu lỗi', 'restore.staged': 'Xếp lịch khôi phục', 'restore.applied': 'Đã khôi phục'
+};
+function describeAudit(action) {
+    return AUDIT_LABELS[action] || action || '—';
+}
+
+function auditFilters() {
+    const params = { page: opsState.auditPage || 1, page_size: 50 };
+    [['username', '#audit-username'], ['action', '#audit-action'], ['from', '#audit-from'], ['to', '#audit-to']].forEach(([key, sel]) => {
+        const v = $(sel).val();
+        if (v) params[key] = v;
+    });
+    return params;
+}
+
+function loadAudit() {
+    return $.get('/api/v1/audit', auditFilters()).done(function (response) {
+        opsState.audit = response.data || [];
+        opsState.auditTotal = response.total || 0;
+        renderAudit();
+    }).fail(function () {
+        opsState.audit = [];
+        opsState.auditTotal = 0;
+        renderAudit();
+    });
+}
+
+function renderAudit() {
     const body = $('#ops-audit-body').empty();
-    if (!opsState.messages.length && !opsState.slotEvents.length) {
-        body.append($('<tr>').append($('<td>').attr('colspan', 5).append(opsElement('div', 'ops-empty', 'Chưa có sự kiện để hiển thị.'))));
-        return;
+    const rows = opsState.audit || [];
+    if (!rows.length) {
+        body.append($('<tr>').append($('<td>').attr('colspan', 5).append(opsElement('div', 'ops-empty', 'Chưa có hành động nào được ghi.'))));
     }
-    opsState.messages.slice(0, 50).forEach(message => {
+    rows.forEach(entry => {
         const row = $('<tr>');
-        row.append($('<td>').text(new Date(message.timestamp).toLocaleString('vi-VN')));
-        row.append($('<td>').text(message.type === 'sent' ? 'admin' : 'system'));
-        row.append($('<td>').text(message.type === 'sent' ? 'Gửi SMS' : 'Nhận SMS'));
-        row.append($('<td>').text(`${message.phone || 'Không rõ số'} · ${message.iccid || 'Không rõ SIM'}`));
-        row.append($('<td>').append(opsElement('span', `status-chip status-${message.type === 'sent' ? 'ready' : 'ok'}`, opsMessageStatus(message).label)));
+        row.append($('<td>').text(new Date(entry.at).toLocaleString('vi-VN')));
+        row.append($('<td>').text(entry.username || '—'));
+        row.append($('<td>').text(describeAudit(entry.action)).attr('title', entry.detail || ''));
+        row.append($('<td>').addClass('mono').text([entry.iccid, entry.target].filter(Boolean).join(' · ') || '—'));
+        const ok = entry.status < 400;
+        row.append($('<td>').append(opsElement('span', `status-chip status-${ok ? 'ok' : 'danger'}`, `${ok ? 'OK' : 'Lỗi'} ${entry.status}`)));
         body.append(row);
     });
-    opsState.slotEvents.slice(0, 20).forEach(event => {
-        const row = $('<tr>');
-        row.append($('<td>').text(new Date(event.detected_at).toLocaleString('vi-VN')));
-        row.append($('<td>').text('system'));
-        row.append($('<td>').text('Đổi khe'));
-        row.append($('<td>').text(`${event.iccid} · ${describeSlotEvent(event).path}`));
-        row.append($('<td>').append(opsElement('span', 'status-chip status-ok', event.event)));
-        body.append(row);
-    });
+    const page = opsState.auditPage || 1;
+    const pages = Math.max(1, Math.ceil((opsState.auditTotal || 0) / 50));
+    $('#audit-page-label').text(`Trang ${page}/${pages} · ${opsState.auditTotal || 0} dòng`);
+    $('#audit-prev').prop('disabled', page <= 1);
+    $('#audit-next').prop('disabled', page >= pages);
+}
+
+function auditCsv(rows) {
+    const quote = value => `"${String(value === undefined || value === null ? '' : value).replaceAll('"', '""')}"`;
+    const out = [['at', 'username', 'action', 'label', 'iccid', 'target', 'status', 'ip', 'detail']];
+    (rows || []).forEach(e => out.push([e.at, e.username, e.action, describeAudit(e.action), e.iccid, e.target, e.status, e.ip, e.detail]));
+    return out.map(r => r.map(quote).join(',')).join('\r\n');
 }
 
 function renderOperationsConsole() {
@@ -983,7 +1234,6 @@ function renderOperationsConsole() {
     renderMaintenance();
     renderAlertCenter();
     renderReportPreview();
-    renderAuditPreview();
 }
 
 function loadOperationsData() {
@@ -1087,7 +1337,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
@@ -1113,6 +1363,19 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         const view = $(this).data('open-view');
         window.navigateApp(view);
     });
+    $('#audit-username, #audit-action, #audit-from, #audit-to').on('change', function () { opsState.auditPage = 1; loadAudit(); });
+    $('#audit-prev').click(function () { opsState.auditPage = Math.max(1, (opsState.auditPage || 1) - 1); loadAudit(); });
+    $('#audit-next').click(function () { opsState.auditPage = (opsState.auditPage || 1) + 1; loadAudit(); });
+    $('#btn-export-audit').click(function () {
+        $.get('/api/v1/audit', Object.assign(auditFilters(), { page: 1, page_size: 500 })).done(function (response) {
+            const url = URL.createObjectURL(new Blob(['﻿', auditCsv(response.data)], { type: 'text/csv;charset=utf-8' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `smsie-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+        });
+    });
     $('#btn-refresh-ops').click(loadOperationsData);
     $('#btn-balance-run').click(function () {
         const button = $(this);
@@ -1131,14 +1394,22 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             status.text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gửi được yêu cầu đọc số dư.');
         }).always(function () { button.prop('disabled', false); });
     });
-    $('#btn-export-preview').click(function () {
-        const blob = new Blob(['\ufeff', buildOpsCsv(opsState.messages)], { type: 'text/csv;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `smsie-report-${new Date().toISOString().slice(0, 10)}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
+    $('#report-month').val(localMonth()).on('change', loadMonthlyReport);
+    $('#btn-report-csv').click(async function () {
+        const month = currentReportMonth();
+        try {
+            const response = await fetch(`/api/v1/reports/monthly?month=${encodeURIComponent(month)}&format=csv`, {
+                headers: { Authorization: `Bearer ${auth.token}` }
+            });
+            if (!response.ok) throw new Error('csv failed');
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(await response.blob());
+            link.download = `smsie-bao-cao-${month}.csv`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        } catch (_) {
+            $('#ops-backup-status').text('Không tải được CSV tháng.');
+        }
     });
     $('#btn-backup-database').click(async function () {
         const button = $(this);
@@ -1165,6 +1436,50 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             button.prop('disabled', false).html('<i class="bi bi-database-down"></i> Sao lưu dữ liệu');
         }
     });
+    $('#btn-backup-run').click(function () {
+        const button = $(this).prop('disabled', true);
+        const status = $('#ops-backup-status').text('Đang sao lưu…');
+        $.ajax({ url: '/api/v1/admin/backups/run', method: 'POST' }).done(function (res) {
+            status.text(`Đã sao lưu ${res.name} (${formatBackupSize(res.size_bytes)})${res.pruned && res.pruned.length ? `, xoá ${res.pruned.length} bản cũ` : ''}.`);
+            loadBackups();
+        }).fail(function (xhr) {
+            status.text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Sao lưu thất bại.');
+        }).always(function () { button.prop('disabled', false); });
+    });
+    $('#btn-restore-open').click(function () {
+        $('#restore-status').text('');
+        $('#restore-file').val('');
+        $('#btn-restore-confirm').prop('disabled', false);
+        loadBackups().always(() => $('#restoreModal').modal('show'));
+    });
+    $('#btn-restore-confirm').click(async function () {
+        const button = $(this);
+        const status = $('#restore-status');
+        const name = $('#restore-name').val();
+        const file = $('#restore-file')[0].files[0];
+        if (!name && !file) { status.text('Chọn một bản có sẵn hoặc tải file lên.'); return; }
+        button.prop('disabled', true);
+        status.text('Đang kiểm tra file…');
+        try {
+            let response;
+            const headers = { Authorization: `Bearer ${auth.token}` };
+            if (name) {
+                response = await fetch('/api/v1/admin/restore', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, headers), body: JSON.stringify({ name }) });
+            } else {
+                const form = new FormData();
+                form.append('file', file);
+                response = await fetch('/api/v1/admin/restore', { method: 'POST', headers, body: form });
+            }
+            const data = await response.json().catch(() => ({}));
+            if (response.status !== 202) throw new Error(data.error || 'Khôi phục thất bại.');
+            status.text(data.service ? 'Đã xếp lịch khôi phục, đang khởi động lại…' : 'Đã xếp lịch khôi phục. Ứng dụng không chạy dưới service: hãy khởi động lại smsie.exe tay, trang sẽ tự tải lại khi app sống.');
+            const alive = await waitForRestart(() => fetch('/ping', { cache: 'no-store' }).then(r => r.ok), ms => new Promise(r => setTimeout(r, ms)));
+            if (alive) window.location.reload(); else status.text('Chưa thấy ứng dụng sống lại sau 60 giây. Kiểm tra service rồi tải lại trang.');
+        } catch (err) {
+            status.text(err.message || 'Khôi phục thất bại.');
+            button.prop('disabled', false);
+        }
+    });
     $('#sms-search').on('input', function () {
         renderConversationInbox(opsState.currentMessages || []);
     });
@@ -1178,11 +1493,10 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             loadSlotEvents(route.iccid);
         }
         if (route.view === 'audit') {
-            $.get('/api/v1/slot-events', { page_size: 200 }).done(function (response) {
-                opsState.slotEvents = response.data || [];
-                renderAuditPreview();
-            });
+            opsState.auditPage = 1;
+            loadAudit();
         }
+        if (route.view === 'reports') { loadMonthlyReport(); loadBackups(); }
     });
     if (auth.username && ['overview', 'slots', 'alerts', 'reports', 'audit', 'maintenance'].includes(window.currentAppRoute().view)) {
         loadOperationsData();

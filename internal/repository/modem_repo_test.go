@@ -91,3 +91,41 @@ func TestLastReceivedSMSAtIgnoresSent(t *testing.T) {
 		t.Fatalf("A = %v, want %v", got["A"], base.Add(time.Hour))
 	}
 }
+
+func TestSetPhoneNumberWritesHistoryOnlyWhenChanged(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Modem{}, &model.PhoneNumberHistory{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewModemRepository(db)
+	const iccid = "89840000000000000002"
+	if err := repo.Upsert(&model.Modem{ICCID: iccid}); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := repo.SetPhoneNumber(iccid, "0912345678", "ussd"); err != nil || !changed {
+		t.Fatalf("first set: changed=%v err=%v", changed, err)
+	}
+	if changed, err := repo.SetPhoneNumber(iccid, "0912345678", "ussd"); err != nil || changed {
+		t.Fatalf("same number: changed=%v err=%v", changed, err)
+	}
+	if changed, err := repo.SetPhoneNumber(iccid, "0987654321", "manual"); err != nil || !changed {
+		t.Fatalf("second set: changed=%v err=%v", changed, err)
+	}
+	if _, err := repo.SetPhoneNumber("missing", "0987654321", "manual"); err == nil {
+		t.Fatal("unknown iccid should error")
+	}
+	m, _ := repo.FindByICCID(iccid)
+	if m.PhoneNumber != "0987654321" {
+		t.Fatalf("phone = %q", m.PhoneNumber)
+	}
+	hist, err := repo.PhoneHistory(iccid)
+	if err != nil || len(hist) != 2 {
+		t.Fatalf("history = %v err=%v", hist, err)
+	}
+	if hist[0].OldPhone != "0912345678" || hist[0].NewPhone != "0987654321" || hist[0].Source != "manual" || hist[1].OldPhone != "" || hist[1].Source != "ussd" {
+		t.Fatalf("history rows = %+v", hist)
+	}
+}

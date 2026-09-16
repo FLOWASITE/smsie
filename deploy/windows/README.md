@@ -12,13 +12,18 @@ The script downloads the pinned official WinSW v2.12.0 x64 wrapper, installs `sm
 
 ## Backup and restore
 
-Download a consistent snapshot from **Báo cáo → Sao lưu dữ liệu**. Restore only from an elevated terminal:
+Backups run automatically every day at `backup.hour` (default 03:00) into `backups/smsie-YYYYMMDD-HHMMSS.db`; each file is checked with `PRAGMA integrity_check` and only the newest `backup.keep` (default 14) are kept. **Báo cáo → Sao lưu** lists them, downloads any of them, and has **Sao lưu ngay**. **Sao lưu dữ liệu** still downloads a fresh snapshot to the browser.
+
+Restore never replaces the live database while the app is running. Both paths stage the file as `smsie.db.restore-pending` and let `smsie.exe` apply it at the next start (integrity check → copy the current DB to `backups/pre-restore-*.db` → rename pending → live; audit `restore.applied`):
+
+- **UI**: **Báo cáo → Khôi phục**, pick an existing backup or upload a `.db` (≤ 512 MB). Under the Windows service (`SMSIE_SERVICE=1`, set by `smsie-service.xml`) the app exits with code 3 after 2 s and WinSW restarts it; otherwise restart it by hand.
+- **Script** (elevated terminal):
 
 ```powershell
 .\deploy\windows\restore-backup.ps1 -BackupPath "C:\path\smsie-backup.db"
 ```
 
-Restore stops the service and copies the current database to `backups/pre-restore-*.db` before replacing it.
+The script checks the SQLite header, copies the file to `smsie.db.restore-pending`, and runs `Restart-Service smsie`.
 
 ## Cloudflare Tunnel
 

@@ -19,7 +19,7 @@ func TestUpdateModemProfilePersistsPhoneHardwarePathAndBalance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Modem{}); err != nil {
+	if err := db.AutoMigrate(&model.Modem{}, &model.PhoneNumberHistory{}); err != nil {
 		t.Fatal(err)
 	}
 	const iccid = "89840509241455299254"
@@ -80,7 +80,7 @@ func TestUpdateModemProfileLowBalanceVND(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Modem{}); err != nil {
+	if err := db.AutoMigrate(&model.Modem{}, &model.PhoneNumberHistory{}); err != nil {
 		t.Fatal(err)
 	}
 	const iccid = "89840509241455299254"
@@ -123,7 +123,7 @@ func TestUpdateModemProfileKeepalive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Modem{}); err != nil {
+	if err := db.AutoMigrate(&model.Modem{}, &model.PhoneNumberHistory{}); err != nil {
 		t.Fatal(err)
 	}
 	const iccid = "89840509241455299254"

@@ -23,6 +23,13 @@ func (r *WebhookRepository) FindByICCID(iccid string) ([]model.Webhook, error) {
 	return list, err
 }
 
+// FindAllEnabled: mọi webhook đang bật, không phân biệt ICCID (cảnh báo hệ thống).
+func (r *WebhookRepository) FindAllEnabled() ([]model.Webhook, error) {
+	var list []model.Webhook
+	err := r.db.Where("enabled = ?", true).Find(&list).Error
+	return list, err
+}
+
 func (r *WebhookRepository) Delete(id uint) error {
 	return r.db.Delete(&model.Webhook{}, id).Error
 }

@@ -9,3 +9,4 @@ logs/
 backups/
 .idea
 config.yaml
+*.restore-pending

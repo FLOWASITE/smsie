@@ -45,6 +45,18 @@ func (s *WebhookService) DispatchText(iccid, text string) {
 	}
 }
 
+// Broadcast gửi thông điệp hệ thống (không gắn SIM) tới MỌI webhook đang bật.
+func (s *WebhookService) Broadcast(text string) {
+	webhooks, err := s.repo.FindAllEnabled()
+	if err != nil {
+		logger.Log.Errorf("Failed to fetch webhooks for broadcast: %v", err)
+		return
+	}
+	for _, wh := range webhooks {
+		go s.sendWebhook(wh, &model.SMS{ICCID: wh.ICCID, Content: text, Timestamp: time.Now(), Type: "alert"})
+	}
+}
+
 func (s *WebhookService) sendWebhook(wh model.Webhook, sms *model.SMS) {
 	// 1. Render Template (bỏ qua với alert: template SMS dùng {{.Phone}} sẽ ra chuỗi vô nghĩa)
 	content := sms.Content
