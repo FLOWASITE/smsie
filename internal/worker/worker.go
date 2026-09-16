@@ -560,9 +560,10 @@ func (w *ModemWorker) handleURC(line string) {
 		return
 	}
 	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(line)), "+CUSD:") {
-		if !w.capturePhoneNumber(line) {
-			w.captureBalance(line)
-		}
+		// Giải mã một lần (UCS2/GSM7 hex) rồi cho cả hai bộ bắt xem — trả lời số dư không chứa số thuê bao và ngược lại.
+		text := decodeCUSD(line)
+		w.capturePhoneNumber(text)
+		w.captureBalance(text)
 		return
 	}
 

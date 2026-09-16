@@ -15,8 +15,9 @@ const phoneLookupWindow = 90 * time.Second
 
 var ErrNoPhoneLookupCode = errors.New("chưa cấu hình mã tra số")
 
-// phonePattern: 84xxxxxxxxx / +84xxxxxxxxx / 0xxxxxxxxx (9 số sau đầu số).
-var phonePattern = regexp.MustCompile(`(?:\+?84|0)(\d{9})\b`)
+// phonePattern: 84xxxxxxxxx / +84xxxxxxxxx / 0xxxxxxxxx (9 số sau đầu số); chặn đầu bằng ký tự
+// không phải chữ số để không nhặt đoạn giữa ICCID/IMEI.
+var phonePattern = regexp.MustCompile(`(?:^|[^\d])(?:\+?84|0)(\d{9})\b`)
 
 // parsePhoneNumber nhặt số thuê bao VN đầu tiên trong text, chuẩn hoá 0XXXXXXXXX.
 // Chỉ nhận đầu số di động 03/05/07/08/09 để không nhặt nhầm mã OTP hay số tiền.

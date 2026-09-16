@@ -23,6 +23,8 @@ func TestParsePhoneNumber(t *testing.T) {
 		{"Ma OTP cua ban la 123456", "", false},
 		{"So 0123456789 khong hop le", "", false},
 		{"Tong 0912345678901 khong phai so", "", false},
+		{"IMEI 352090912345678 ICCID 89840509241455290254", "", false},
+		{"LH 0912345678,0987654321", "0912345678", true},
 	}
 	for _, c := range cases {
 		got, ok := parsePhoneNumber(c.in)
