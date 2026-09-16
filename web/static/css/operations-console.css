@@ -2374,6 +2374,7 @@ body {
 .mini-slot.tone-weak { color: #b66b08; background: #fff0d6; border-color: #f3dfb5; }
 .mini-slot.tone-offline { background: #eef1f0; }
 .mini-slot.tone-empty { background: #fbfcfb; border-style: dashed; }
+.mini-slot.tone-missing { color:#b7c1bd; background:#f6f8f7; border-style:dashed; }
 .mini-slot.is-swapped { border-color: #e8b45a; }
 
 @media (max-width: 1100px) {

@@ -93,7 +93,7 @@ test('describeSlotEvent renders path and balance label', () => {
     assert.deepEqual(describeSlotEvent({ event: 'moved', from_slot: 15, to_slot: 16, balance_vnd: 48500 }),
         { path: 'Khe 15 → Khe 16', tone: 'moved', balance: '48.500 đ', balanceNote: 'số dư lúc vào khe' });
     assert.deepEqual(describeSlotEvent({ event: 'removed', from_slot: 15 }),
-        { path: 'Khe 15 → rút ra', tone: 'removed', balance: '—', balanceNote: 'USSD quá hạn' });
+        { path: 'Khe 15 → rút ra', tone: 'removed', balance: '—', balanceNote: 'không đọc số dư' });
     assert.equal(describeSlotEvent({ event: 'inserted', to_slot: null }).path, 'Chưa gán khe');
 });
 

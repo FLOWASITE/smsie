@@ -25,9 +25,10 @@ func intp(n int) *int { return &n }
 
 func TestMigrateFromModemsCopiesSlotToBayOnce(t *testing.T) {
 	db := newBayTestDB(t)
-	db.Create(&model.Modem{ICCID: "ICCID-1", IMEI: "IMEI-A", SlotNumber: intp(15)})
-	db.Create(&model.Modem{ICCID: "ICCID-2", IMEI: "IMEI-A", SlotNumber: intp(16)}) // trùng IMEI → bỏ qua
-	db.Create(&model.Modem{ICCID: "ICCID-3", IMEI: "", SlotNumber: intp(17)})       // không IMEI → bỏ qua
+	db.Create(&model.Modem{ICCID: "ICCID-1", IMEI: "860000000000001", SlotNumber: intp(15)})
+	db.Create(&model.Modem{ICCID: "ICCID-2", IMEI: "860000000000001", SlotNumber: intp(16)}) // trùng IMEI → bỏ qua
+	db.Create(&model.Modem{ICCID: "ICCID-3", IMEI: "", SlotNumber: intp(17)})                // không IMEI → bỏ qua
+	db.Create(&model.Modem{ICCID: "ICCID-4", IMEI: "+CPIN: READY", SlotNumber: intp(18)})    // IMEI rác parser cũ → bỏ qua
 	repo := NewBayRepository(db)
 	if err := repo.MigrateFromModems(); err != nil {
 		t.Fatal(err)
@@ -37,7 +38,7 @@ func TestMigrateFromModemsCopiesSlotToBayOnce(t *testing.T) {
 	}
 	var bays []model.ModemBay
 	db.Find(&bays)
-	if len(bays) != 1 || bays[0].IMEI != "IMEI-A" || *bays[0].SlotNumber != 15 || bays[0].CurrentICCID != "ICCID-1" {
+	if len(bays) != 1 || bays[0].IMEI != "860000000000001" || *bays[0].SlotNumber != 15 || bays[0].CurrentICCID != "ICCID-1" {
 		t.Fatalf("bays = %+v", bays)
 	}
 	var n int64

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"errors"
+	"regexp"
+	"sync"
 	"time"
 
 	"github.com/pccr10001/smsie/internal/model"
@@ -12,6 +14,12 @@ import (
 )
 
 var ErrSlotTaken = errors.New("slot already assigned to another modem")
+
+// imeiPattern lọc IMEI rác parser cũ có thể đã lưu (vd "+CPIN: READY").
+var imeiPattern = regexp.MustCompile(`^\d{14,16}$`)
+
+// ponytail: khoá toàn cục vì SQLite không có busy_timeout; đủ cho 32 worker, nâng lên busy_timeout DSN nếu đổi driver
+var bayWriteMu sync.Mutex
 
 type BayRepository struct {
 	db *gorm.DB
@@ -43,6 +51,8 @@ func (r *BayRepository) Observe(o Observation) ([]model.SimSlotEvent, error) {
 	if o.IMEI == "" || o.ICCID == "" {
 		return nil, nil
 	}
+	bayWriteMu.Lock()
+	defer bayWriteMu.Unlock()
 	var written []model.SimSlotEvent
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var bays []model.ModemBay
@@ -105,6 +115,8 @@ func (r *BayRepository) Observe(o Observation) ([]model.SimSlotEvent, error) {
 
 // MarkEmpty ghi removed khi modem báo không có SIM; lần gọi lặp không ghi thêm.
 func (r *BayRepository) MarkEmpty(imei, portName string, at time.Time) error {
+	bayWriteMu.Lock()
+	defer bayWriteMu.Unlock()
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var bay model.ModemBay
 		if err := tx.First(&bay, "imei = ?", imei).Error; err != nil {
@@ -131,7 +143,7 @@ func (r *BayRepository) MarkEmpty(imei, portName string, at time.Time) error {
 func (r *BayRepository) FillBalance(iccid string, balance int64, at time.Time) error {
 	var ev model.SimSlotEvent
 	err := r.db.Where("iccid = ? AND balance_vnd IS NULL AND detected_at >= ?", iccid, at.Add(-5*time.Minute)).
-		Order("detected_at DESC").First(&ev).Error
+		Order("detected_at DESC, id DESC").First(&ev).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}
@@ -143,6 +155,8 @@ func (r *BayRepository) FillBalance(iccid string, balance int64, at time.Time) e
 
 // AssignSlot gán/bỏ gán số khe cho IMEI (hiệu chuẩn).
 func (r *BayRepository) AssignSlot(imei string, slot *int) error {
+	bayWriteMu.Lock()
+	defer bayWriteMu.Unlock()
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if slot != nil {
 			var n int64
@@ -209,7 +223,7 @@ func (r *BayRepository) ListEvents(f EventFilter) ([]model.SimSlotEvent, int64, 
 }
 
 // MigrateFromModems chạy một lần lúc khởi động: copy slot_number gán tay theo ICCID sang bay theo IMEI.
-// Bỏ qua dòng không IMEI, trùng IMEI hoặc trùng slot; idempotent (bay đã có thì không đụng).
+// Bỏ qua dòng không IMEI/IMEI rác, trùng IMEI hoặc trùng slot; idempotent (bay đã có thì không đụng).
 func (r *BayRepository) MigrateFromModems() error {
 	var modems []model.Modem
 	if err := r.db.Where("slot_number IS NOT NULL AND imei <> ''").Order("slot_number").Find(&modems).Error; err != nil {
@@ -217,6 +231,12 @@ func (r *BayRepository) MigrateFromModems() error {
 	}
 	seenIMEI := map[string]bool{}
 	for _, m := range modems {
+		if !imeiPattern.MatchString(m.IMEI) {
+			if logger.Log != nil {
+				logger.Log.Warnf("MigrateFromModems: bỏ qua ICCID=%s vì IMEI=%q không hợp lệ", m.ICCID, m.IMEI)
+			}
+			continue
+		}
 		if seenIMEI[m.IMEI] {
 			if logger.Log != nil {
 				logger.Log.Warnf("MigrateFromModems: bỏ qua ICCID=%s vì IMEI=%s trùng", m.ICCID, m.IMEI)

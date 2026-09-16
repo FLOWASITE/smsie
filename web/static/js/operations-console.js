@@ -527,7 +527,9 @@ function renderBayCalibration() {
         tr.append($('<td>').append(pill(bay)));
         tr.append($('<td>').addClass('mono').text(bay && bay.last_seen_at ? new Date(bay.last_seen_at).toLocaleString('vi-VN') : '—'));
         const actions = $('<td>');
-        if (bay) {
+        if (bay && !isAdmin) {
+            actions.text(slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán');
+        } else if (bay) {
             const select = $('<select>').addClass('form-select form-select-sm').attr('aria-label', `Đổi khe cho ${bay.imei}`);
             select.append($('<option>').val('').text(slot ? 'Bỏ gán' : 'Chọn khe…'));
             freeSlots.forEach(s => select.append($('<option>').val(s).text(`Khe ${String(s).padStart(2, '0')}`)));
@@ -859,7 +861,7 @@ function describeSlotEvent(event) {
         path,
         tone: event.event,
         balance: hasBalance ? opsMoney(event.balance_vnd) : '—',
-        balanceNote: hasBalance ? balanceNote : 'USSD quá hạn'
+        balanceNote: hasBalance ? balanceNote : (event.event === 'removed' ? 'không đọc số dư' : 'USSD quá hạn')
     };
 }
 
