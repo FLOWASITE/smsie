@@ -47,7 +47,9 @@ balance:
   check_hour: 6            # giờ địa phương đọc số dư
   low_threshold_vnd: 20000 # ngưỡng cảnh báo mặc định (per-SIM: low_balance_vnd)
   forecast_days: 7         # cảnh báo khi dự kiến hết tiền trong N ngày
-  ussd_code: "*101#"
+  ussd_code: "*101#"     # mặc định (Viettel/Vina/Mobi)
+  ussd_codes:            # theo nhà mạng, ưu tiên hơn ussd_code
+    Vietnamobile: "*102#"   # trả cả số thuê bao + "TKC: 15.002d"
 
 sim_health:
   enabled: true            # cảnh báo SIM "chết" (cùng chu kỳ với balance)

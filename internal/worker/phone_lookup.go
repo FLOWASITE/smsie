@@ -3,6 +3,7 @@ package worker
 import (
 	"errors"
 	"fmt"
+	"github.com/pccr10001/smsie/internal/mccmnc"
 	"regexp"
 	"strings"
 	"time"
@@ -41,6 +42,12 @@ func lookupCodeFor(operator string, codes map[string]string) string {
 		n := strings.ToLower(name)
 		if strings.Contains(op, n) || strings.Contains(n, op) {
 			return code
+		}
+	}
+	// Operator còn ở dạng mã số (không có mcc_mnc.json): quy về tên VN rồi tra lại.
+	if len(op) >= 5 && op[:3] == "452" {
+		if name := mccmnc.GetOperatorName("452", op[3:]); name != "" && !strings.EqualFold(name, op) {
+			return lookupCodeFor(name, codes)
 		}
 	}
 	return ""

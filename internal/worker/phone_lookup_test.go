@@ -39,6 +39,10 @@ func TestLookupCodeFor(t *testing.T) {
 	if lookupCodeFor("VIETTEL", codes) != "*098#" || lookupCodeFor("VN Vinaphone", codes) != "*110#" || lookupCodeFor("Mobifone", codes) != "" || lookupCodeFor("", codes) != "" {
 		t.Fatal("lookupCodeFor mismatch")
 	}
+	// operator còn ở dạng mã số (không có mcc_mnc.json)
+	if lookupCodeFor("45204", codes) != "*098#" || lookupCodeFor("45205", codes) != "" {
+		t.Fatal("lookupCodeFor numeric mismatch")
+	}
 }
 
 func newPhoneTestWorker(t *testing.T) (*ModemWorker, *gorm.DB) {

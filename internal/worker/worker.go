@@ -40,9 +40,11 @@ type ModemWorker struct {
 	phoneLookupUntil   time.Time // cửa sổ bắt trả lời USSD tra số; zero = đóng
 	// lastRegisteredWrite chỉ do goroutine logicLoop (checkSignal) đọc/ghi → không cần mutex.
 	lastRegisteredWrite time.Time
-	modemMu            sync.RWMutex
-	reprobeMu          sync.Mutex
-	reprobe            bool
+	phoneLookupTried    bool      // chỉ logicLoop chạm; tra số một lần khi thấy đăng ký mạng
+	searchingSince      time.Time // chỉ logicLoop chạm; mốc bắt đầu thấy CREG=2 (đang tìm mạng)
+	modemMu             sync.RWMutex
+	reprobeMu           sync.Mutex
+	reprobe             bool
 
 	callOpMu sync.Mutex
 	callMu   sync.RWMutex
@@ -379,6 +381,12 @@ func (w *ModemWorker) initModem() {
 			imei = parseIMEI(resp)
 		}
 
+		// 3b. Quectel khoá LTE-only (nwscanmode=3) thì USSD (*101#/*102#) trả +CME ERROR: 30;
+		// auto (0) vẫn ưu tiên LTE nhưng rơi về 3G cho dịch vụ CS. Đặt một lần, modem nhớ (tham số ,1).
+		if isQuectel {
+			w.ensureAutoScanMode()
+		}
+
 		// 4. Get ICCID
 		var iccid string
 		if isQuectel {
@@ -474,22 +482,7 @@ func (w *ModemWorker) initModem() {
 				if strings.Contains(resp, "\"") {
 					splitted := strings.Split(resp, "\"")
 					if len(splitted) >= 2 {
-						op := splitted[1]
-						isNumeric := true
-						for _, c := range op {
-							if c < '0' || c > '9' {
-								isNumeric = false
-								break
-							}
-						}
-
-						if isNumeric && (len(op) == 5 || len(op) == 6) {
-							modemName := mccmnc.GetOperatorName(op[:3], op[3:])
-							if modemName != "" {
-								op = modemName
-							}
-						}
-						operator = op
+						operator = resolveOperatorName(splitted[1])
 					}
 				}
 			}
@@ -1298,5 +1291,41 @@ func getTpduAlphabet(t *tpdu.TPDU) string {
 		return "UCS2"
 	default:
 		return "unknown"
+	}
+}
+
+// resolveOperatorName đổi mã MCC-MNC (AT+COPS=3,2) thành tên nhà mạng; chuỗi khác giữ nguyên.
+func resolveOperatorName(op string) string {
+	op = strings.TrimSpace(op)
+	if len(op) != 5 && len(op) != 6 {
+		return op
+	}
+	for _, c := range op {
+		if c < '0' || c > '9' {
+			return op
+		}
+	}
+	if name := mccmnc.GetOperatorName(op[:3], op[3:]); name != "" {
+		return name
+	}
+	return op
+}
+
+func (w *ModemWorker) ensureAutoScanMode() {
+	resp, err := w.ExecuteATSilent(`AT+QCFG="nwscanmode"`, 2*time.Second)
+	if err != nil || !strings.Contains(resp, `"nwscanmode",3`) {
+		return
+	}
+	if _, err := w.ExecuteATSilent(`AT+QCFG="nwscanmode",0,1`, 3*time.Second); err != nil {
+		logger.Log.Warnf("[%s] Failed to switch nwscanmode 3 -> 0: %v", w.PortName, err)
+		return
+	}
+	logger.Log.Infof("[%s] nwscanmode was LTE-only (3); switched to auto (0) so USSD/CS services work", w.PortName)
+	// Đổi mode xong modem có thể nằm ở "Searching" rất lâu (thấy ở COM22, sóng yếu); AT+COPS=0 ép chọn lại mạng.
+	_, _ = w.ExecuteATSilent("AT+COPS=0", 10*time.Second)
+	// Modem đăng ký lại mạng sau khi đổi mode; chờ để bước CREG/COPS phía sau không thấy "chưa đăng ký".
+	select {
+	case <-time.After(8 * time.Second):
+	case <-w.stop:
 	}
 }

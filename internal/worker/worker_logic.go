@@ -73,8 +73,9 @@ func (w *ModemWorker) checkOperator(session *atSession) {
 			// parts[0] = +COPS: 0,0,
 			// parts[1] = Chunghwa Telecom (Operator)
 			// parts[2] = ,7
+			name := resolveOperatorName(parts[1])
 			w.updateModem(func(modem *model.Modem) {
-				modem.Operator = parts[1]
+				modem.Operator = name
 			})
 			// We delay saving to avoid aggressive DB writes, or just save
 			// w.repo.Upsert(w.modem)
@@ -86,6 +87,18 @@ func (w *ModemWorker) checkOperator(session *atSession) {
 func (w *ModemWorker) checkSignal(session *atSession) {
 	// Registration drives whether operator should be shown.
 	regCode := w.checkRegistration(session)
+	// Kẹt "Searching" (CREG=2) quá 90 s → AT+COPS=0 ép chọn lại mạng (thấy ở EC20 sau khi đổi nwscanmode / sóng yếu).
+	if regCode == "2" {
+		if w.searchingSince.IsZero() {
+			w.searchingSince = time.Now()
+		} else if time.Since(w.searchingSince) > 90*time.Second {
+			logger.Log.Infof("[%s] Stuck searching for network > 90s; sending AT+COPS=0", w.PortName)
+			_, _ = session.execute("AT+COPS=0", 10*time.Second, false)
+			w.searchingSince = time.Now()
+		}
+	} else {
+		w.searchingSince = time.Time{}
+	}
 	if regCode == "1" || regCode == "5" {
 		w.checkOperator(session)
 		if time.Since(w.lastRegisteredWrite) >= 10*time.Minute {
@@ -95,6 +108,13 @@ func (w *ModemWorker) checkSignal(session *atSession) {
 				} else {
 					logger.Log.Warnf("[%s] Touch last_registered_at failed: %v", w.PortName, err)
 				}
+			}
+		}
+		// SIM chưa biết số (probe lúc chưa đăng ký mạng, hoặc vừa đổi nwscanmode): tra một lần khi mạng đã lên.
+		if !w.phoneLookupTried {
+			w.phoneLookupTried = true
+			if iccid := w.modemICCID(); iccid != "" {
+				w.lookupPhoneIfMissing(iccid)
 			}
 		}
 	} else if regCode != "" {
