@@ -104,8 +104,14 @@ func Middleware(db *gorm.DB) gin.HandlerFunc {
 		}
 		var body []byte
 		if c.Request.Body != nil {
-			body, _ = io.ReadAll(io.LimitReader(c.Request.Body, maxBody))
-			c.Request.Body = io.NopCloser(bytes.NewReader(body))
+			// Chỉ giữ 4 KB đầu để ghi detail; phần còn lại nối tiếp nguyên stream cho handler
+			// (upload ghi âm multipart hàng trăm MB không được đọc hết vào RAM hay bị cắt).
+			rest := c.Request.Body
+			body, _ = io.ReadAll(io.LimitReader(rest, maxBody))
+			c.Request.Body = struct {
+				io.Reader
+				io.Closer
+			}{io.MultiReader(bytes.NewReader(body), rest), rest}
 		}
 		c.Next()
 

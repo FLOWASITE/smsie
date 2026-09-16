@@ -94,12 +94,28 @@ func TestMiddlewareRecordsPostNotGet(t *testing.T) {
 	}
 }
 
+func TestMiddlewareKeepsFullBodyOver4KB(t *testing.T) {
+	db := newDB(t)
+	r := router(db, &model.User{ID: 1, Username: "a"}, nil)
+	body := strings.Repeat("y", 3*maxBody)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/modems/1/send", bytes.NewBufferString(body)))
+	if rec.Body.String() != body {
+		t.Fatalf("handler nhận %d byte, gửi %d", rec.Body.Len(), len(body))
+	}
+	if e := waitRows(t, db, 1)[0]; e.Detail != "" {
+		t.Fatalf("body cắt 4 KB không phải JSON → detail phải rỗng: %q", e.Detail)
+	}
+}
+
 func TestMiddlewareStatusApiKeyAndFallback(t *testing.T) {
 	db := newDB(t)
 	r := router(db, &model.User{ID: 1, Username: "bob"}, &model.APIKey{ID: 3, Name: "n8n"})
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/change_password", bytes.NewBufferString(`{"old_password":"a","new_password":"b"}`)))
+	waitRows(t, db, 1) // Record chạy trong goroutine: chờ từng dòng để thứ tự id ổn định
 	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodDelete, "/api/v1/users/42", nil))
+	waitRows(t, db, 2)
 	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPatch, "/api/v1/modems/89/profile", bytes.NewBufferString(`{"phone_number":"09","balance_vnd":5}`)))
 	rows := waitRows(t, db, 3)
 	if rows[0].Action != "auth.password" || rows[0].Status != 400 || rows[0].Detail != "" || rows[0].Username != "apikey:n8n" || rows[0].APIKeyID == nil || *rows[0].APIKeyID != 3 {

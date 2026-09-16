@@ -45,7 +45,10 @@ func (h *AuditHandler) List(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	if size < 1 || size > 500 {
+	if size < 1 {
+		size = 50
+	}
+	if size > 500 {
 		size = 500
 	}
 	var total int64
