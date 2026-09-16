@@ -55,6 +55,7 @@ type Modem struct {
 	HardwarePath      string     `gorm:"column:hardware_path;index" json:"hardware_path,omitempty"`
 	BalanceVND        int64      `gorm:"column:balance_vnd;default:0" json:"balance_vnd"`
 	BalanceUpdatedAt  *time.Time `gorm:"column:balance_updated_at" json:"balance_updated_at,omitempty"`
+	LowBalanceVND     *int64     `gorm:"column:low_balance_vnd" json:"low_balance_vnd,omitempty"` // ngưỡng riêng, nil = dùng config
 	SIPEnabled        bool       `gorm:"column:sip_enabled" json:"sip_enabled"`
 	SIPUsername       string     `gorm:"column:sip_username" json:"sip_username,omitempty"`
 	SIPPassword       string     `gorm:"column:sip_password" json:"-"`
@@ -140,4 +141,27 @@ type SimSlotEvent struct {
 	ToSlot      *int      `gorm:"column:to_slot" json:"to_slot,omitempty"`
 	BalanceVND  *int64    `gorm:"column:balance_vnd" json:"balance_vnd,omitempty"`
 	PortName    string    `gorm:"size:32" json:"port_name,omitempty"`
+}
+
+// BalanceSnapshot là chuỗi số dư theo thời gian, ghi mỗi lần đọc được *101#.
+type BalanceSnapshot struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	ICCID      string    `gorm:"column:iccid;size:32;index" json:"iccid"`
+	BalanceVND int64     `gorm:"column:balance_vnd" json:"balance_vnd"`
+	ReadAt     time.Time `gorm:"index" json:"read_at"`
+}
+
+const (
+	BalanceAlertLow      = "low"
+	BalanceAlertForecast = "forecast"
+)
+
+// BalanceAlert ghi lại mỗi lần đã cảnh báo (chống lặp trong 24h).
+type BalanceAlert struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	ICCID      string    `gorm:"column:iccid;size:32;index" json:"iccid"`
+	Kind       string    `gorm:"size:16" json:"kind"`
+	BalanceVND int64     `gorm:"column:balance_vnd" json:"balance_vnd"`
+	DaysLeft   *float64  `gorm:"column:days_left" json:"days_left,omitempty"`
+	SentAt     time.Time `gorm:"index" json:"sent_at"`
 }

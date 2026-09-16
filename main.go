@@ -265,7 +265,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {

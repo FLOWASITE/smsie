@@ -41,3 +41,10 @@ calling:
 
 log:
   level: "info" # debug, info, warn, error
+
+balance:
+  enabled: true            # đọc *101# tự động mỗi ngày
+  check_hour: 6            # giờ địa phương đọc số dư
+  low_threshold_vnd: 20000 # ngưỡng cảnh báo mặc định (per-SIM: low_balance_vnd)
+  forecast_days: 7         # cảnh báo khi dự kiến hết tiền trong N ngày
+  ussd_code: "*101#"

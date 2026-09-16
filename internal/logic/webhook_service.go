@@ -33,10 +33,22 @@ func (s *WebhookService) Dispatch(sms *model.SMS) {
 	}
 }
 
+// DispatchText gửi một thông điệp tự do tới mọi webhook của ICCID (bỏ qua template, payload cùng định dạng).
+func (s *WebhookService) DispatchText(iccid, text string) {
+	webhooks, err := s.repo.FindByICCID(iccid)
+	if err != nil {
+		logger.Log.Errorf("Failed to fetch webhooks for ICCID %s: %v", iccid, err)
+		return
+	}
+	for _, wh := range webhooks {
+		go s.sendWebhook(wh, &model.SMS{ICCID: iccid, Content: text, Timestamp: time.Now(), Type: "alert"})
+	}
+}
+
 func (s *WebhookService) sendWebhook(wh model.Webhook, sms *model.SMS) {
-	// 1. Render Template
+	// 1. Render Template (bỏ qua với alert: template SMS dùng {{.Phone}} sẽ ra chuỗi vô nghĩa)
 	content := sms.Content
-	if wh.Template != "" {
+	if wh.Template != "" && sms.Type != "alert" {
 		tmpl, err := template.New("msg").Parse(wh.Template)
 		if err == nil {
 			var buf bytes.Buffer

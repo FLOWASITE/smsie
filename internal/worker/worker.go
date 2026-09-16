@@ -51,6 +51,7 @@ type ModemWorker struct {
 	// Data
 	repo           *repository.ModemRepository
 	bayRepo        *repository.BayRepository
+	balanceRepo    *repository.BalanceRepository
 	smsRepo        *repository.SMSRepository
 	webhookService *logic.WebhookService
 	modem          *model.Modem
@@ -120,6 +121,7 @@ func NewModemWorker(portName string, db *gorm.DB, manager *Manager) *ModemWorker
 		transactionChan: make(chan atTransaction, 10),
 		repo:            repository.NewModemRepository(db),
 		bayRepo:         repository.NewBayRepository(db),
+		balanceRepo:     repository.NewBalanceRepository(db),
 		smsRepo:         repository.NewSMSRepository(db),
 		webhookService:  logic.NewWebhookService(repository.NewWebhookRepository(db)),
 		manager:         manager,
