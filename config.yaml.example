@@ -60,7 +60,7 @@ keepalive:
   enabled: false           # nuôi SIM — TỐN TIỀN (gửi SMS nội mạng), phải bật tường minh
   interval_days: 25        # gửi khi không có SMS đi/đến trong N ngày (per-SIM: keepalive_interval)
   max_per_month: 3         # trần số lần gửi mỗi SIM mỗi tháng dương lịch
-  message: "keepalive {{.Date}}"   # nội dung; {{.Date}} = yyyy-mm-dd
+  message: "keepalive {{.Date}}"   # nội dung; {{.Date}} = yyyymmdd. TRÁNH dạng "chữ + 2026-09-16": nhà mạng VN (đã thấy ở Vietnamobile) lọc spam giữ tin lại, modem treo tới timeout
   run_hour: 7              # giờ chạy hằng ngày (sau giờ đọc số dư)
 
 phone_lookup:

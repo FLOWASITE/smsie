@@ -296,7 +296,7 @@ func (s *Service) render(now time.Time) (string, error) {
 		return "", err
 	}
 	var b strings.Builder
-	if err := t.Execute(&b, struct{ Date string }{now.Format("2006-01-02")}); err != nil {
+	if err := t.Execute(&b, struct{ Date string }{now.Format("20060102")}); err != nil {
 		return "", err
 	}
 	return b.String(), nil
