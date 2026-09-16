@@ -109,6 +109,15 @@ func (s *Scheduler) ReadAll(stop <-chan struct{}) int { return s.Request(s.Eligi
 
 // Eligible liệt kê SIM online, đã đăng ký mạng và chưa đọc số dư trong 20h — không ngủ, không khoá.
 func (s *Scheduler) Eligible() []*worker.ModemWorker {
+	return s.eligible(false)
+}
+
+// EligibleAll: mọi SIM online + đã đăng ký, kể cả vừa đọc — cho nút "Kiểm tra toàn bộ".
+func (s *Scheduler) EligibleAll() []*worker.ModemWorker {
+	return s.eligible(true)
+}
+
+func (s *Scheduler) eligible(force bool) []*worker.ModemWorker {
 	cutoff := time.Now().Add(-20 * time.Hour)
 	var out []*worker.ModemWorker
 	for _, w := range s.wm.ActiveWorkers() {
@@ -116,9 +125,11 @@ func (s *Scheduler) Eligible() []*worker.ModemWorker {
 		if !ok || rt.Status != "online" || !registered(rt.Registration) {
 			continue
 		}
-		var m model.Modem
-		if err := s.db.Select("balance_updated_at").First(&m, "iccid = ?", rt.ICCID).Error; err == nil && m.BalanceUpdatedAt != nil && m.BalanceUpdatedAt.After(cutoff) {
-			continue
+		if !force {
+			var m model.Modem
+			if err := s.db.Select("balance_updated_at").First(&m, "iccid = ?", rt.ICCID).Error; err == nil && m.BalanceUpdatedAt != nil && m.BalanceUpdatedAt.After(cutoff) {
+				continue
+			}
 		}
 		out = append(out, w)
 	}

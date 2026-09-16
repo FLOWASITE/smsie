@@ -81,7 +81,15 @@ func (h *BalanceHandler) RunNow(c *gin.Context) {
 	if !h.admin(c) {
 		return
 	}
+	// ?force=1 (hoặc body {"force":true}): bỏ qua luật "đã đọc trong 20 giờ" — nút "Kiểm tra toàn bộ".
+	var body struct {
+		Force bool `json:"force"`
+	}
+	_ = c.ShouldBindJSON(&body)
 	ws := h.sched.Eligible()
+	if body.Force || c.Query("force") == "1" {
+		ws = h.sched.EligibleAll()
+	}
 	go func() {
 		h.sched.Request(ws, nil)
 		time.Sleep(h.evalDelay)
