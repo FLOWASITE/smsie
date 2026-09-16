@@ -521,6 +521,119 @@ components:
         port_name:
           type: string
 
+    PhoneNumberHistory:
+      type: object
+      description: Append-only row — the SIM's subscriber number changed (USSD lookup or manual edit).
+      properties:
+        id:
+          type: integer
+        iccid:
+          type: string
+        old_phone:
+          type: string
+        new_phone:
+          type: string
+        source:
+          type: string
+          enum: [ussd, manual]
+        at:
+          type: string
+          format: date-time
+
+    AuditLog:
+      type: object
+      description: One recorded action (POST/PATCH/PUT/DELETE on authenticated routes, plus system rows such as backup.ok / restore.applied). detail keeps only the first 4 KB of the body with password/secret/key/token fields removed.
+      properties:
+        id:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        username:
+          type: string
+        user_id:
+          type: integer
+        api_key_id:
+          type: integer
+        action:
+          type: string
+          description: Stable code, e.g. sms.send, call.dial, phone.lookup, backup.run, restore.staged; unmapped routes use "<METHOD> <path>"
+        iccid:
+          type: string
+        target:
+          type: string
+          description: Phone number / id / imei the action was aimed at
+        detail:
+          type: string
+        status:
+          type: integer
+          description: HTTP status the handler returned
+        ip:
+          type: string
+
+    ReportRow:
+      type: object
+      description: One SIM's numbers for the month; the same shape is used for totals.
+      properties:
+        iccid:
+          type: string
+        phone_number:
+          type: string
+        slot_number:
+          type: integer
+          nullable: true
+        sms_received:
+          type: integer
+        sms_sent:
+          type: integer
+        sms_failed:
+          type: integer
+          description: Counted from audit_logs (sms.send with status >= 400)
+        calls:
+          type: integer
+        call_seconds:
+          type: integer
+        balance_start:
+          type: integer
+          nullable: true
+        balance_end:
+          type: integer
+          nullable: true
+        balance_delta:
+          type: integer
+          nullable: true
+        slot_events:
+          type: integer
+        keepalive_sent:
+          type: integer
+        alerts:
+          type: integer
+
+    MonthlyReport:
+      type: object
+      properties:
+        month:
+          type: string
+          example: "2026-09"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportRow"
+        totals:
+          $ref: "#/components/schemas/ReportRow"
+
+    BackupInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: smsie-YYYYMMDD-HHMMSS.db (scheduled / manual) or pre-restore-YYYYMMDD-HHMMSS.db (copy taken before a restore was applied)
+        size_bytes:
+          type: integer
+        mod_time:
+          type: string
+          format: date-time
+
 security:
   - bearerAuth: []
 
@@ -1644,3 +1757,272 @@ paths:
         "200":
           description: Webhook deleted
 
+  /modems/{iccid}/phone-lookup:
+    post:
+      summary: Look up the SIM's own subscriber number via USSD
+      description: Sends the operator's lookup code (config phone_lookup.codes, matched by operator name) and parses the reply (UCS2/GSM7 hex decoded first). Runs in the background; a change is written to phone-history. Requires send permission on the SIM.
+      parameters:
+        - name: iccid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Lookup started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: looking_up
+                  iccid:
+                    type: string
+                  method:
+                    type: string
+                    example: ussd
+        "400":
+          description: No lookup code for this operator / lookup disabled
+        "403":
+          description: Permission denied
+        "409":
+          description: Modem offline
+
+  /modems/{iccid}/phone-history:
+    get:
+      summary: Subscriber-number change history of a SIM
+      parameters:
+        - name: iccid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PhoneNumberHistory"
+        "403":
+          description: Permission denied
+
+  /audit:
+    get:
+      summary: List audit log (Admin only)
+      parameters:
+        - name: iccid
+          in: query
+          schema:
+            type: string
+        - name: username
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: YYYY-MM-DD (local), inclusive
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: YYYY-MM-DD (local), inclusive
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditLog"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        "400":
+          description: from/to must be YYYY-MM-DD
+        "403":
+          description: Admin access required
+
+  /reports/monthly:
+    get:
+      summary: Monthly per-SIM report (JSON or CSV)
+      description: SMS received/sent/failed, calls and seconds, balance at start/end of month, slot events, keep-alive sends, alerts — one row per SIM the caller may view, plus totals. Month boundaries use the server's local time.
+      parameters:
+        - name: month
+          in: query
+          description: YYYY-MM; defaults to the current month
+          schema:
+            type: string
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+      responses:
+        "200":
+          description: Report (CSV has a UTF-8 BOM and is sent as an attachment smsie-bao-cao-YYYY-MM.csv)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlyReport"
+            text/csv:
+              schema:
+                type: string
+        "400":
+          description: month must be YYYY-MM
+        "403":
+          description: API key permission denied
+
+  /admin/backups:
+    get:
+      summary: List SQLite backups and the schedule (Admin only)
+      responses:
+        "200":
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BackupInfo"
+                  schedule:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      dir:
+                        type: string
+                      hour:
+                        type: integer
+                      keep:
+                        type: integer
+        "403":
+          description: Admin access required
+        "501":
+          description: Backup currently supports SQLite only
+
+  /admin/backups/run:
+    post:
+      summary: Take a backup now (Admin only)
+      description: Synchronous VACUUM INTO + PRAGMA integrity_check, then prunes smsie-*.db beyond backup.keep (pre-restore-*.db is never pruned). Audit backup.ok / backup.failed.
+      responses:
+        "200":
+          description: Backup written
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  name:
+                    type: string
+                  size_bytes:
+                    type: integer
+                  pruned:
+                    type: array
+                    items:
+                      type: string
+        "403":
+          description: Admin access required
+        "500":
+          description: VACUUM or integrity check failed
+
+  /admin/backups/{name}:
+    get:
+      summary: Download one backup file (Admin only)
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Must match smsie-YYYYMMDD-HHMMSS.db or pre-restore-YYYYMMDD-HHMMSS.db
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SQLite file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid backup name
+        "404":
+          description: Backup not found
+
+  /admin/restore:
+    post:
+      summary: Stage a database restore (Admin only)
+      description: Never replaces the live database while running. The file is header- and integrity-checked, then written as <dsn>.restore-pending; smsie.exe applies it at the next start (current DB snapshotted to backups/pre-restore-*.db first, audit restore.applied). Under the Windows service (SMSIE_SERVICE=1) the process exits with code 3 after 2 s so WinSW restarts it; otherwise restart by hand. Audit restore.staged.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: SQLite file, ≤ 512 MB
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Name of an existing backup (see GET /admin/backups)
+      responses:
+        "202":
+          description: Staged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restart_required:
+                    type: boolean
+                  service:
+                    type: boolean
+                    description: true when the app will restart itself (SMSIE_SERVICE=1)
+        "400":
+          description: Not a valid SQLite database / bad name / file too large
+        "403":
+          description: Admin access required
+        "404":
+          description: Backup not found

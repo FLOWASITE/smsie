@@ -15,7 +15,7 @@ Persist physical slot, subscriber number, Windows hardware path, and balance for
 
 - `PATCH /api/v1/modems/:iccid/profile`: admin-only partial update for `phone_number`, `hardware_path`, and `balance_vnd` (`balance_updated_at` is set automatically when `balance_vnd` is supplied). `slot_number` moved to `PATCH /api/v1/bays/:imei` (see `sim-slot-history.md`).
 - `GET /api/v1/admin/backup`: admin-only consistent SQLite snapshot download.
-- Restore remains disabled until Windows service restart semantics and upload validation are implemented and reviewed.
+- Restore: `POST /api/v1/admin/restore` (or `deploy/windows/restore-backup.ps1`) stages the file as `<dsn>.restore-pending`; it is applied at the next start, before the DB is opened. Daily backups, integrity check and pruning: see `roadmap-4-muc-cuoi.md` §4.
 
 ## Data rules
 
