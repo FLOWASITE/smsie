@@ -91,6 +91,27 @@ var (
 )
 
 var dialNumberPattern = regexp.MustCompile(`^[0-9*#+]+$`)
+var imeiPattern = regexp.MustCompile(`^\d{14,16}$`)
+var cmeSIMNotInserted = regexp.MustCompile(`\+CME ERROR:\s*10\b`) // \b so 100/101… don't match
+
+// parseIMEI returns the first pure-digit 14–16 char line; boot URCs like "+CPIN: READY" are skipped.
+func parseIMEI(resp string) string {
+	for _, l := range strings.Split(resp, "\n") {
+		if l = strings.TrimSpace(l); imeiPattern.MatchString(l) {
+			return l
+		}
+	}
+	return ""
+}
+
+// isSIMNotInserted: +CME ERROR: 10 (numeric) or "SIM not inserted" (AT+CMEE=2 verbose).
+func isSIMNotInserted(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return cmeSIMNotInserted.MatchString(msg) || strings.Contains(strings.ToLower(msg), "sim not inserted")
+}
 
 func NewModemWorker(portName string, db *gorm.DB, manager *Manager) *ModemWorker {
 	return &ModemWorker{
@@ -330,15 +351,7 @@ func (w *ModemWorker) initModem() {
 		var imei string
 		resp, err = w.ExecuteAT("AT+CGSN", 2*time.Second) // or AT+GSN
 		if err == nil {
-			// IMEI is usually just a number line
-			lines := strings.Split(resp, "\n")
-			for _, l := range lines {
-				l = strings.TrimSpace(l)
-				if len(l) > 10 && !strings.Contains(l, "OK") {
-					imei = l
-					break
-				}
-			}
+			imei = parseIMEI(resp)
 		}
 
 		// 4. Get ICCID
@@ -363,7 +376,7 @@ func (w *ModemWorker) initModem() {
 
 		if iccid == "" {
 			logger.Log.Errorf("[%s] Failed to get ICCID", w.PortName)
-			if imei != "" {
+			if imei != "" && isSIMNotInserted(err) {
 				if err := w.bayRepo.MarkEmpty(imei, w.PortName, time.Now()); err != nil {
 					logger.Log.Warnf("[%s] Failed to mark bay empty: %v", w.PortName, err)
 				}
@@ -473,7 +486,11 @@ func (w *ModemWorker) initModem() {
 				logger.Log.Infof("[%s] Slot event %s: %s %v -> %v", w.PortName, e.Event, e.ICCID, derefInt(e.FromSlot), derefInt(e.ToSlot))
 			}
 			if len(events) > 0 {
-				if err := w.RequestBalance(); err != nil {
+				if regCode != "1" && regCode != "5" {
+					logger.Log.Infof("[%s] Skip balance check after slot event: not registered (CREG %s)", w.PortName, regCode)
+				} else if err := w.RequestBalance(); errors.Is(err, ErrBalanceCheckInProgress) {
+					logger.Log.Debugf("[%s] Balance check after slot event skipped: %v", w.PortName, err)
+				} else if err != nil {
 					logger.Log.Warnf("[%s] Balance check after slot event failed: %v", w.PortName, err)
 				}
 			}
