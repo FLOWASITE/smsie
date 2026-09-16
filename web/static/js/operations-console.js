@@ -6,6 +6,7 @@ const opsState = {
     slotTab: 'tray',
     phoneNumbers: {},
     balanceChecks: {},
+    balanceStatus: [],
     loadedAt: null
 };
 
@@ -89,6 +90,25 @@ function opsBalanceLabel(modem) {
     return modem && modem.balance_updated_at ? opsMoney(modem.balance_vnd) : 'Chưa kiểm tra';
 }
 
+function describeBalanceLevel(item) {
+    const it = item || {};
+    const days = it.days_left;
+    if (it.level === 'low') return { tone: 'danger', label: `Số dư ${opsMoney(it.balance_vnd)} dưới ngưỡng ${opsMoney(it.threshold_vnd)}` };
+    if (it.level === 'forecast') return { tone: 'warning', label: `Dự kiến hết tiền sau ≈${Math.round(days)} ngày` };
+    if (it.level === 'ok') return { tone: 'ok', label: days !== null && days !== undefined ? `Còn ≈${Math.round(days)} ngày` : 'Số dư ổn' };
+    return { tone: 'muted', label: 'Chưa đọc số dư' };
+}
+
+function balanceSparkline(snapshots) {
+    return (snapshots || []).slice(-7).map(s => `${Math.round(Number(s.balance_vnd || 0) / 1000)}k`).join(' → ');
+}
+
+function opsBalanceByICCID() {
+    const map = {};
+    opsState.balanceStatus.forEach(item => { map[item.iccid] = item; });
+    return map;
+}
+
 function opsSlotByICCID() {
     const map = {};
     opsState.bays.forEach(bay => { if (bay.current_iccid && bay.slot_number) map[bay.current_iccid] = bay.slot_number; });
@@ -124,6 +144,12 @@ function opsAlerts() {
             });
         }
     });
+    const slots = opsSlotByICCID();
+    opsState.balanceStatus.forEach(item => {
+        if (item.level !== 'low' && item.level !== 'forecast') return;
+        const d = describeBalanceLevel(item);
+        alerts.push({ level: d.tone, title: `Khe ${item.slot_number ?? slots[item.iccid] ?? '—'} · ${item.phone_number || item.iccid}`, note: d.label });
+    });
     if (!alerts.length) {
         alerts.push({ level: 'ok', title: 'Không có cảnh báo', note: 'Các modem đã gán đang hoạt động bình thường.' });
     }
@@ -138,7 +164,7 @@ function renderOpsKPIs() {
         { label: 'Modem trực tuyến', value: `${online}/32`, note: `${32 - mapped} khe chưa có mapping`, icon: 'bi-router', tone: 'mint' },
         { label: 'SIM đã gán', value: `${mapped}/32`, note: mapped ? 'Đã lưu hồ sơ vật lý' : 'Chưa có mapping vật lý', icon: 'bi-sim', tone: 'blue' },
         { label: 'Tin chưa đọc', value: unread, note: `${opsState.messages.length} tin trong lịch sử`, icon: 'bi-chat-left-text', tone: 'green' },
-        { label: 'Cảnh báo', value: opsAlerts().filter(alert => alert.level !== 'ok').length, note: 'Theo sức khỏe modem và mapping', icon: 'bi-exclamation-triangle', tone: 'coral' }
+        { label: 'Cảnh báo', value: opsAlerts().filter(alert => alert.level !== 'ok').length, note: `${opsState.balanceStatus.filter(item => item.level === 'low' || item.level === 'forecast').length} SIM sắp hết tiền`, icon: 'bi-exclamation-triangle', tone: 'coral' }
     ];
     const container = $('#ops-kpis').empty();
     cards.forEach(card => {
@@ -379,7 +405,9 @@ function renderLiveUnassigned() {
 
 function bayCard(cell) {
     const bay = cell.bay;
-    const card = opsElement('button', `bay ${cell.tone}${cell.swapped ? ' swapped' : ''}`);
+    const status = bay && bay.current_iccid ? opsBalanceByICCID()[bay.current_iccid] : null;
+    const level = status ? status.level : '';
+    const card = opsElement('button', `bay ${cell.tone}${cell.swapped ? ' swapped' : ''}${level === 'low' || level === 'forecast' ? ` ${level}` : ''}`);
     card.attr('type', 'button').prop('disabled', cell.tone === 'missing');
     const body = opsElement('div');
     body.append(opsElement('div', 'num', `Khe ${String(cell.slot).padStart(2, '0')}`));
@@ -391,7 +419,7 @@ function bayCard(cell) {
     } else {
         body.append(opsElement('div', 'phone', bay.phone_number || bay.current_iccid));
         body.append(opsElement('div', 'op', [bay.operator, bay.port_name].filter(Boolean).join(' · ') || '—'));
-        body.append(opsElement('div', `bal${bay.balance_updated_at && bay.balance_vnd < 20000 ? ' low' : ''}`, bayBalanceLabel(bay)));
+        body.append(opsElement('div', `bal${level === 'low' ? ' low' : ''}`, bayBalanceLabel(bay)));
     }
     card.append(opsElement('span', 'chip'), body, opsElement('span', 'dot'));
     if (cell.swapped) card.append(opsElement('span', 'swap', '↔ 24h'));
@@ -408,9 +436,11 @@ function showTrayPop(cell, card) {
     pop.css({ left: Math.min(r.left - p.left, p.width - 280) + 'px', top: (r.bottom - p.top + 6) + 'px' });
     pop.append(opsElement('b', '', `Khe ${cell.slot}${bay.phone_number ? ' · ' + bay.phone_number : ''}`));
     const dl = $('<dl>');
+    const status = bay.current_iccid ? opsBalanceByICCID()[bay.current_iccid] : null;
     const rows = bay.current_iccid
         ? [['ICCID', bay.current_iccid], ['IMEI', bay.imei], ['Nhà mạng', bay.operator || '—'], ['Số dư', bayBalanceLabel(bay)], ['Ở khe từ', bay.last_event_at ? new Date(bay.last_event_at).toLocaleString('vi-VN') : '—']]
         : [['IMEI', bay.imei], ['Cổng', bay.port_name || '—']];
+    if (status && (status.level === 'low' || status.level === 'forecast' || (status.level === 'ok' && status.days_left != null))) rows.push(['Dự kiến hết', describeBalanceLevel(status).label]);
     rows.forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
     pop.append(dl);
     if (bay.current_iccid) {
@@ -518,12 +548,29 @@ function renderBayCalibration() {
         });
         return td.append(input);
     };
+    const balances = opsBalanceByICCID();
+    const thresholdCell = bay => {
+        const td = $('<td>').addClass('mono');
+        if (!bay || !bay.current_iccid) return td.text('—');
+        const status = balances[bay.current_iccid] || {};
+        const modem = opsState.modems.find(m => m.iccid === bay.current_iccid) || {};
+        if (!isAdmin) return td.text(status.threshold_vnd == null ? '—' : `${opsMoney(status.threshold_vnd)} (${status.threshold_source === 'sim' ? 'riêng' : 'mặc định'})`);
+        const input = $('<input>').attr({ type: 'number', min: 0, step: 1000, placeholder: 'mặc định', 'aria-label': `Ngưỡng số dư khe ${bay.slot_number || bay.imei}` }).addClass('form-control form-control-sm mono').val(modem.low_balance_vnd ?? '');
+        input.change(function () {
+            const value = input.val().trim();
+            $.ajax({ url: `/api/v1/modems/${encodeURIComponent(bay.current_iccid)}/profile`, method: 'PATCH', contentType: 'application/json', data: JSON.stringify({ low_balance_vnd: value === '' ? null : Number(value) }) })
+                .done(loadOperationsData)
+                .fail(xhr => failMark(input, xhr, 'Không lưu được ngưỡng'));
+        });
+        return td.append(input);
+    };
     const row = (slot, bay) => {
         const tr = $('<tr>');
         tr.append($('<td>').addClass('mono').text(slot ? String(slot).padStart(2, '0') : '—'));
         tr.append($('<td>').addClass('mono').text(bay ? bay.imei : '—'));
         tr.append($('<td>').addClass('mono').text(bay && bay.current_iccid ? bay.current_iccid : '—'));
         tr.append(phoneCell(bay));
+        tr.append(thresholdCell(bay));
         tr.append($('<td>').append(pill(bay)));
         tr.append($('<td>').addClass('mono').text(bay && bay.last_seen_at ? new Date(bay.last_seen_at).toLocaleString('vi-VN') : '—'));
         const actions = $('<td>');
@@ -622,6 +669,7 @@ function renderMaintenancePreview() {
     });
 
     const list = $('#ops-schedule-list').empty();
+    const balances = opsBalanceByICCID();
     if (!opsState.modems.length) {
         list.append(opsElement('div', 'ops-empty', 'Chưa có modem để tạo lịch duy trì.'));
         return;
@@ -636,7 +684,9 @@ function renderMaintenancePreview() {
         const main = opsElement('div', 'schedule-main');
         main.append(opsElement('div', 'schedule-title', `${slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán khe'} · ${modem.port_name || modem.iccid}`));
         main.append(opsElement('div', 'ops-list-note', `${opsState.phoneNumbers[modem.iccid] || 'Chưa biết số'} · ${modem.iccid} · ${modem.operator || 'Chưa rõ nhà mạng'} · sóng ${modem.signal_strength || 0}%`));
-        main.append(opsElement('div', 'balance-line', `Số dư hiện tại: ${opsBalanceLabel(modem)}${modem.balance_updated_at ? ` · cập nhật ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : ''}`));
+        const status = balances[modem.iccid];
+        main.append(opsElement('div', 'balance-line', `Số dư hiện tại: ${opsBalanceLabel(modem)}${modem.balance_updated_at ? ` · cập nhật ${new Date(modem.balance_updated_at).toLocaleString('vi-VN')}` : ''}${status ? ` · ${describeBalanceLevel(status).label}` : ''}`));
+        if (status && (status.snapshots || []).length >= 2) main.append(opsElement('div', 'ops-list-note mono', balanceSparkline(status.snapshots)));
         main.append(opsElement('div', 'schedule-rule', 'Mỗi tháng · gọi thử hoặc SMS · tối đa 1 lần thành công'));
         const controls = opsElement('div', 'schedule-controls');
         controls.append(opsElement('span', `status-chip ${slot ? 'status-ready' : 'status-blocked'}`, slot ? 'Sẵn sàng cấu hình' : 'Cần mapping'));
@@ -662,6 +712,7 @@ function renderMaintenancePreview() {
 }
 
 function renderAlertCenter() {
+    $('#btn-balance-run').toggleClass('d-none', !(typeof auth !== 'undefined' && auth.role === 'admin'));
     const container = $('#ops-alert-list').empty();
     opsAlerts().forEach(alert => {
         const card = opsElement('article', `alert-card alert-${alert.level}`);
@@ -776,11 +827,13 @@ function loadOperationsData() {
     $.when(
         $.get('/api/v1/modems'),
         $.get('/api/v1/sms', { page: 1, limit: 200 }),
-        $.get('/api/v1/bays')
-    ).done(function (modemResponse, smsResponse, bayResponse) {
+        $.get('/api/v1/bays'),
+        $.get('/api/v1/balance/status')
+    ).done(function (modemResponse, smsResponse, bayResponse, balanceResponse) {
         opsState.modems = modemResponse[0] || [];
         opsState.messages = (smsResponse[0] && smsResponse[0].data) || [];
         opsState.bays = bayResponse[0] || [];
+        opsState.balanceStatus = balanceResponse[0] || [];
         opsState.modems.forEach(modem => {
             if (modem.phone_number) opsState.phoneNumbers[modem.iccid] = modem.phone_number;
         });
@@ -866,7 +919,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
@@ -893,6 +946,23 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         window.navigateApp(view);
     });
     $('#btn-refresh-ops').click(loadOperationsData);
+    $('#btn-balance-run').click(function () {
+        const button = $(this);
+        const status = $('#ops-balance-run-status');
+        button.prop('disabled', true);
+        status.text('Đang yêu cầu đọc số dư…');
+        $.ajax({ url: '/api/v1/balance/run', method: 'POST' }).done(function (response) {
+            const n = Number((response && response.requested) || 0);
+            if (!n) {
+                status.text('Không có SIM cần đọc (đã đọc trong 20 giờ qua hoặc ngoại tuyến).');
+                return;
+            }
+            status.text(`Đã yêu cầu đọc ${n} SIM, đánh giá sau ~${Math.min(120, 3 * n + 25)} giây.`);
+            window.setTimeout(loadOperationsData, Math.min(120000, 3000 * n + 25000));
+        }).fail(function (xhr) {
+            status.text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gửi được yêu cầu đọc số dư.');
+        }).always(function () { button.prop('disabled', false); });
+    });
     $('#btn-export-preview').click(function () {
         const blob = new Blob(['\ufeff', buildOpsCsv(opsState.messages)], { type: 'text/csv;charset=utf-8' });
         const url = URL.createObjectURL(blob);

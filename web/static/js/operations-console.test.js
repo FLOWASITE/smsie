@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -100,4 +100,22 @@ test('describeSlotEvent renders path and balance label', () => {
 test('bayBalanceLabel shows Chưa kiểm tra until USSD has run', () => {
     assert.equal(bayBalanceLabel({ balance_vnd: 0 }), 'Chưa kiểm tra');
     assert.equal(bayBalanceLabel({ balance_vnd: 48500, balance_updated_at: '2026-09-16T00:00:00Z' }), '48.500 đ');
+});
+
+test('describeBalanceLevel maps level to tone and label', () => {
+    assert.deepEqual(describeBalanceLevel({ level: 'low', balance_vnd: 12000, threshold_vnd: 20000 }),
+        { tone: 'danger', label: 'Số dư 12.000 đ dưới ngưỡng 20.000 đ' });
+    assert.deepEqual(describeBalanceLevel({ level: 'forecast', balance_vnd: 90000, threshold_vnd: 20000, days_left: 3.4 }),
+        { tone: 'warning', label: 'Dự kiến hết tiền sau ≈3 ngày' });
+    assert.deepEqual(describeBalanceLevel({ level: 'ok', balance_vnd: 150000, days_left: 12.6 }), { tone: 'ok', label: 'Còn ≈13 ngày' });
+    assert.deepEqual(describeBalanceLevel({ level: 'ok', balance_vnd: 150000 }), { tone: 'ok', label: 'Số dư ổn' });
+    assert.deepEqual(describeBalanceLevel({ level: 'unknown' }), { tone: 'muted', label: 'Chưa đọc số dư' });
+    assert.deepEqual(describeBalanceLevel(undefined), { tone: 'muted', label: 'Chưa đọc số dư' });
+});
+
+test('balanceSparkline joins up to 7 snapshots in thousands', () => {
+    assert.equal(balanceSparkline([{ balance_vnd: 52400 }, { balance_vnd: 48000 }, { balance_vnd: 41200 }]), '52k → 48k → 41k');
+    assert.equal(balanceSparkline([]), '');
+    assert.equal(balanceSparkline(undefined), '');
+    assert.equal(balanceSparkline(Array.from({ length: 9 }, (_, i) => ({ balance_vnd: (i + 1) * 1000 }))), '3k → 4k → 5k → 6k → 7k → 8k → 9k');
 });

@@ -2203,6 +2203,9 @@ body {
   color: #b66b08;
 }
 
+.bay.forecast { border-color: #f3cf8a; }
+.bay.low { border-color: #e8a0a0; }
+
 .bay .dot {
   position: absolute;
   top: 0.55rem;
