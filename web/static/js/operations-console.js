@@ -81,6 +81,10 @@ function opsMoney(value) {
     return `${Number(value || 0).toLocaleString('vi-VN')} đ`;
 }
 
+function bayBalanceLabel(bay) {
+    return bay && bay.balance_updated_at ? opsMoney(bay.balance_vnd) : 'Chưa kiểm tra';
+}
+
 function opsBalanceLabel(modem) {
     return modem && modem.balance_updated_at ? opsMoney(modem.balance_vnd) : 'Chưa kiểm tra';
 }
@@ -376,18 +380,18 @@ function renderLiveUnassigned() {
 function bayCard(cell) {
     const bay = cell.bay;
     const card = opsElement('button', `bay ${cell.tone}${cell.swapped ? ' swapped' : ''}`);
-    card.attr({ type: 'button', 'aria-label': `Khe ${cell.slot}` });
+    card.attr('type', 'button').prop('disabled', cell.tone === 'missing');
     const body = opsElement('div');
     body.append(opsElement('div', 'num', `Khe ${String(cell.slot).padStart(2, '0')}`));
     if (!bay) {
         body.append(opsElement('div', 'phone', 'Chưa gán modem'));
     } else if (!bay.current_iccid) {
         body.append(opsElement('div', 'phone', 'Không có SIM'));
-        body.append(opsElement('div', 'op', bay.port_name || `IMEI …${bay.imei.slice(-4)}`));
+        body.append(opsElement('div', 'op', bay.port_name || `IMEI …${String(bay.imei || '').slice(-4)}`));
     } else {
         body.append(opsElement('div', 'phone', bay.phone_number || bay.current_iccid));
         body.append(opsElement('div', 'op', [bay.operator, bay.port_name].filter(Boolean).join(' · ') || '—'));
-        body.append(opsElement('div', `bal${bay.balance_vnd < 20000 ? ' low' : ''}`, opsMoney(bay.balance_vnd)));
+        body.append(opsElement('div', `bal${bay.balance_updated_at && bay.balance_vnd < 20000 ? ' low' : ''}`, bayBalanceLabel(bay)));
     }
     card.append(opsElement('span', 'chip'), body, opsElement('span', 'dot'));
     if (cell.swapped) card.append(opsElement('span', 'swap', '↔ 24h'));
@@ -405,7 +409,7 @@ function showTrayPop(cell, card) {
     pop.append(opsElement('b', '', `Khe ${cell.slot}${bay.phone_number ? ' · ' + bay.phone_number : ''}`));
     const dl = $('<dl>');
     const rows = bay.current_iccid
-        ? [['ICCID', bay.current_iccid], ['IMEI', bay.imei], ['Nhà mạng', bay.operator || '—'], ['Số dư', opsMoney(bay.balance_vnd)], ['Ở khe từ', bay.last_event_at ? new Date(bay.last_event_at).toLocaleString('vi-VN') : '—']]
+        ? [['ICCID', bay.current_iccid], ['IMEI', bay.imei], ['Nhà mạng', bay.operator || '—'], ['Số dư', bayBalanceLabel(bay)], ['Ở khe từ', bay.last_event_at ? new Date(bay.last_event_at).toLocaleString('vi-VN') : '—']]
         : [['IMEI', bay.imei], ['Cổng', bay.port_name || '—']];
     rows.forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
     pop.append(dl);
@@ -736,11 +740,12 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
     $(document).on('click', e => { if (!$(e.target).closest('.bay, #ops-tray-pop').length) $('#ops-tray-pop').prop('hidden', true); });
+    $(document).on('keydown', e => { if (e.key === 'Escape') $('#ops-tray-pop').prop('hidden', true); });
     $('.ops-tab').click(function () {
         opsState.slotTab = $(this).data('slot-tab');
         $('.ops-tab').removeClass('is-active').filter(this).addClass('is-active');

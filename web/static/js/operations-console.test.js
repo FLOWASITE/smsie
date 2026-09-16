@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -95,4 +95,9 @@ test('describeSlotEvent renders path and balance label', () => {
     assert.deepEqual(describeSlotEvent({ event: 'removed', from_slot: 15 }),
         { path: 'Khe 15 → rút ra', tone: 'removed', balance: '—', balanceNote: 'USSD quá hạn' });
     assert.equal(describeSlotEvent({ event: 'inserted', to_slot: null }).path, 'Chưa gán khe');
+});
+
+test('bayBalanceLabel shows Chưa kiểm tra until USSD has run', () => {
+    assert.equal(bayBalanceLabel({ balance_vnd: 0 }), 'Chưa kiểm tra');
+    assert.equal(bayBalanceLabel({ balance_vnd: 48500, balance_updated_at: '2026-09-16T00:00:00Z' }), '48.500 đ');
 });
