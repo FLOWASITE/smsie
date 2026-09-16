@@ -545,6 +545,12 @@ func (h *ModemHandler) DeleteModem(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// Khe đang ghi SIM này thì trả về trống (khe = modem, giữ lại IMEI/số khe).
+	if err := tx.Model(&model.ModemBay{}).Where("current_iccid = ?", iccid).Update("current_iccid", "").Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear bay"})
+		return
+	}
 	if err := tx.Where("iccid = ?", iccid).Delete(&model.UserModemPermission{}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
