@@ -286,7 +286,7 @@
         }
       }
     </style>
-    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-simhealth" />
+    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-keepalive" />
   </head>
   <body>
     <div id="login-app" class="login-wrap d-none">
@@ -456,7 +456,7 @@
               <div class="ops-panel table-responsive">
                 <div class="ops-panel-head"><h2>Khe ↔ modem</h2><span id="ops-cal-summary" class="ops-list-note"></span></div>
                 <table class="table ops-table align-middle mb-0">
-                  <thead><tr><th>Khe</th><th>IMEI modem</th><th>SIM hiện tại</th><th>Số thuê bao</th><th>Ngưỡng</th><th>Trạng thái</th><th>Lần thấy cuối</th><th></th></tr></thead>
+                  <thead><tr><th>Khe</th><th>IMEI modem</th><th>SIM hiện tại</th><th>Số thuê bao</th><th>Ngưỡng</th><th>Nuôi</th><th>Trạng thái</th><th>Lần thấy cuối</th><th></th></tr></thead>
                   <tbody id="ops-cal-body"></tbody>
                 </table>
               </div>
@@ -580,11 +580,11 @@
             <header class="ops-page-head">
               <div>
                 <div class="eyebrow">Duy trì hoạt động SIM</div>
-                <h1>Lịch gọi và SMS</h1>
-                <p>Thiết kế lịch theo từng SIM, có giới hạn cước và không gửi trùng.</p>
+                <h1>Nuôi SIM</h1>
+                <p>Gửi 1 SMS nội mạng sang SIM khác trong khay khi SIM im lặng quá chu kỳ; có trần tháng, không gửi ra ngoài.</p>
               </div>
-              <div class="preview-badge">Mô phỏng · chưa kích hoạt</div>
             </header>
+            <div id="ops-keepalive-banner" class="ops-banner d-none" role="status">Công tắc tổng đang TẮT trong config.yaml (<code>keepalive.enabled</code>) — không SIM nào được gửi.</div>
             <div id="ops-maintenance-summary" class="ops-kpi-grid"></div>
             <div id="ops-schedule-list" class="schedule-list"></div>
           </section>
@@ -1083,7 +1083,7 @@
     <script src="/static/js/router.js?v=20260911-calls"></script>
     <script src="/static/js/app.js?v=20260911-calls-v4"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20260916-simhealth"></script>
+    <script src="/static/js/operations-console.js?v=20260916-keepalive"></script>
   </body>
 </html>
 

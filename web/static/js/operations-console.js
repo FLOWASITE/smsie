@@ -8,6 +8,8 @@ const opsState = {
     balanceChecks: {},
     balanceStatus: [],
     simHealth: [],
+    keepalive: { config: {}, items: [] },
+    keepaliveRuns: {},
     loadedAt: null
 };
 
@@ -106,6 +108,50 @@ function describeHealthFinding(finding) {
     return { tone: f.kind === 'absent' ? 'warning' : 'danger', label: f.detail || '' };
 }
 
+const KEEPALIVE_RECENT_MS = 7 * 24 * 60 * 60 * 1000;
+const KEEPALIVE_SMS_VND = 300; // ponytail: giá SMS nội mạng ước tính; thành cột config nếu cần chính xác
+
+function opsShortDate(value) {
+    const d = new Date(value);
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Lần chạy cuối còn "mới" (≤7 ngày) và không phải sent → đáng cảnh báo.
+function keepaliveRecentProblem(item, now) {
+    const run = item && item.last_run;
+    if (!run || run.status === 'sent') return null;
+    if (now - new Date(run.ran_at).getTime() > KEEPALIVE_RECENT_MS) return null;
+    return run;
+}
+
+function describeKeepalive(item, now) {
+    const it = item || {};
+    const at = now === undefined ? Date.now() : now;
+    if (!it.enabled) return { tone: 'muted', label: 'Tắt' };
+    const run = keepaliveRecentProblem(it, at);
+    if (run) return { tone: run.status === 'failed' ? 'danger' : 'warning', label: `Nuôi SIM ${run.status}: ${run.reason || ''}` };
+    if (it.next_due_at) return { tone: 'ok', label: `Lần kế tiếp ${opsShortDate(it.next_due_at)}` };
+    return { tone: 'ok', label: 'Đang bật' };
+}
+
+// Mốc chạy kế tiếp: run_hour:00 hôm nay nếu chưa qua, không thì ngày mai.
+function keepaliveNextRun(runHour, now) {
+    const next = new Date(now === undefined ? Date.now() : now);
+    next.setHours(Number(runHour) || 0, 0, 0, 0);
+    if (next.getTime() <= (now === undefined ? Date.now() : now)) next.setDate(next.getDate() + 1);
+    return next;
+}
+
+function opsKeepaliveByICCID() {
+    const map = {};
+    (opsState.keepalive.items || []).forEach(item => { map[item.iccid] = item; });
+    return map;
+}
+
+function patchModemProfile(iccid, body) {
+    return $.ajax({ url: `/api/v1/modems/${encodeURIComponent(iccid)}/profile`, method: 'PATCH', contentType: 'application/json', data: JSON.stringify(body) });
+}
+
 function opsHealthByICCID() {
     const map = {};
     (opsState.simHealth || []).forEach(item => { if ((item.findings || []).length) map[item.iccid] = item; });
@@ -171,6 +217,11 @@ function opsAlerts() {
             const d = describeHealthFinding(f);
             alerts.push({ level: d.tone, title: `Khe ${item.slot_number ?? slots[item.iccid] ?? '—'} · ${item.phone_number || item.iccid}`, note: d.label });
         });
+    });
+    (opsState.keepalive.items || []).forEach(item => {
+        const run = keepaliveRecentProblem(item, Date.now());
+        if (!run) return;
+        alerts.push({ level: 'warning', title: `Khe ${item.slot_number ?? slots[item.iccid] ?? '—'} · ${item.phone_number || item.iccid}`, note: `Nuôi SIM ${run.status}: ${run.reason || ''}` });
     });
     if (!alerts.length) {
         alerts.push({ level: 'ok', title: 'Không có cảnh báo', note: 'Các modem đã gán đang hoạt động bình thường.' });
@@ -589,6 +640,20 @@ function renderBayCalibration() {
         });
         return td.append(input);
     };
+    const keepalive = opsKeepaliveByICCID();
+    const keepaliveCell = bay => {
+        const td = $('<td>');
+        if (!bay || !bay.current_iccid) return td.text('—');
+        const item = keepalive[bay.current_iccid] || {};
+        if (!isAdmin) return td.text(item.enabled ? 'Bật' : 'Tắt');
+        const input = $('<input>').attr({ type: 'checkbox', 'aria-label': `Nuôi SIM khe ${bay.slot_number || bay.imei}` }).addClass('form-check-input').prop('checked', !!item.enabled);
+        input.change(function () {
+            patchModemProfile(bay.current_iccid, { keepalive_enabled: input.prop('checked') })
+                .done(loadOperationsData)
+                .fail(xhr => failMark(input, xhr, 'Không lưu được công tắc nuôi SIM'));
+        });
+        return td.append(input);
+    };
     const row = (slot, bay) => {
         const tr = $('<tr>');
         tr.append($('<td>').addClass('mono').text(slot ? String(slot).padStart(2, '0') : '—'));
@@ -596,6 +661,7 @@ function renderBayCalibration() {
         tr.append($('<td>').addClass('mono').text(bay && bay.current_iccid ? bay.current_iccid : '—'));
         tr.append(phoneCell(bay));
         tr.append(thresholdCell(bay));
+        tr.append(keepaliveCell(bay));
         tr.append($('<td>').append(pill(bay)));
         tr.append($('<td>').addClass('mono').text(bay && bay.last_seen_at ? new Date(bay.last_seen_at).toLocaleString('vi-VN') : '—'));
         const actions = $('<td>');
@@ -671,15 +737,42 @@ function requestBalanceCheck(modem) {
     });
 }
 
-function renderMaintenancePreview() {
+function requestKeepaliveRun(item) {
+    opsState.keepaliveRuns[item.iccid] = { state: 'running' };
+    renderOperationsConsole();
+    $.ajax({ url: '/api/v1/keepalive/run', method: 'POST', contentType: 'application/json', data: JSON.stringify({ iccid: item.iccid }) })
+        .done(function (run) {
+            opsState.keepaliveRuns[item.iccid] = { state: 'done', run };
+            loadOperationsData();
+        })
+        .fail(function (xhr) {
+            opsState.keepaliveRuns[item.iccid] = { state: 'error', message: xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gửi được yêu cầu nuôi SIM' };
+            renderOperationsConsole();
+        });
+}
+
+function keepaliveRunLine(run) {
+    if (!run) return 'Lần chạy cuối: chưa chạy';
+    return `Lần chạy cuối: ${run.status}${run.reason ? ` · ${run.reason}` : ''} · ${opsDateTime(run.ran_at)}${run.target_phone ? ` → ${run.target_phone}` : ''}`;
+}
+
+function renderMaintenance() {
     const slots = opsSlotByICCID();
-    const mapped = opsState.modems.filter(modem => slots[modem.iccid]);
     const route = window.currentAppRoute ? window.currentAppRoute() : { view: 'maintenance', iccid: '' };
+    const isAdmin = typeof auth !== 'undefined' && auth.role === 'admin';
+    const cfg = opsState.keepalive.config || {};
+    const items = opsState.keepalive.items || [];
+    const keepalive = opsKeepaliveByICCID();
+    const configOn = cfg.enabled === true;
+    const enabled = items.filter(item => item.enabled);
+    const eligible = enabled.filter(item => item.online);
+    const sent = items.reduce((sum, item) => sum + Number(item.sent_this_month || 0), 0);
+    const next = keepaliveNextRun(cfg.run_hour, Date.now());
     const summary = [
-        { label: 'Lịch đang bật', value: '0', note: 'Khóa trong giai đoạn preview', icon: 'bi-calendar2-check', tone: 'mint' },
-        { label: 'SIM đủ điều kiện', value: mapped.length, note: `${opsState.modems.length - mapped.length} modem chưa gán khe`, icon: 'bi-sim', tone: 'blue' },
-        { label: 'Ngân sách tháng', value: '0 đ', note: 'Chưa thiết lập hạn mức', icon: 'bi-wallet2', tone: 'amber' },
-        { label: 'Lần chạy kế tiếp', value: '—', note: 'Chưa kích hoạt lịch', icon: 'bi-clock-history', tone: 'coral' }
+        { label: 'Lịch đang bật', value: enabled.length, note: `${items.length - enabled.length} SIM đang tắt`, icon: 'bi-calendar2-check', tone: 'mint' },
+        { label: 'SIM đủ điều kiện', value: eligible.length, note: `${enabled.length - eligible.length} SIM bật nhưng ngoại tuyến`, icon: 'bi-sim', tone: 'blue' },
+        { label: 'Ngân sách tháng', value: `${opsMoney(sent * KEEPALIVE_SMS_VND)} (ước tính)`, note: `${sent} SMS đã gửi · trần ${cfg.max_per_month ?? '—'} SMS/SIM/tháng`, icon: 'bi-wallet2', tone: 'amber' },
+        { label: 'Lần chạy kế tiếp', value: cfg.run_hour === undefined ? '—' : `${String(next.getHours()).padStart(2, '0')}:00 ${opsShortDate(next)}`, note: configOn ? `Chu kỳ mặc định ${cfg.interval_days ?? '—'} ngày` : 'Công tắc tổng đang tắt', icon: 'bi-clock-history', tone: 'coral' }
     ];
     const kpis = $('#ops-maintenance-summary').empty();
     summary.forEach(item => {
@@ -692,6 +785,7 @@ function renderMaintenancePreview() {
         card.append(metric);
         kpis.append(card);
     });
+    $('#ops-keepalive-banner').toggleClass('d-none', cfg.enabled !== false);
 
     const list = $('#ops-schedule-list').empty();
     const balances = opsBalanceByICCID();
@@ -702,10 +796,11 @@ function renderMaintenancePreview() {
     opsState.modems.forEach(modem => {
         const slot = slots[modem.iccid];
         const selected = route.iccid === modem.iccid;
+        const ka = keepalive[modem.iccid] || { iccid: modem.iccid, enabled: !!modem.keepalive_enabled };
         const card = opsElement('article', `schedule-card${selected ? ' is-selected' : ''}`);
         card.attr({ role: 'link', tabindex: '0' })
             .click(() => window.navigateApp('maintenance', modem.iccid))
-            .on('keydown', event => { if (event.key === 'Enter') window.navigateApp('maintenance', modem.iccid); });
+            .on('keydown', event => { if (event.key === 'Enter' && event.target === card[0]) window.navigateApp('maintenance', modem.iccid); });
         const main = opsElement('div', 'schedule-main');
         main.append(opsElement('div', 'schedule-title', `${slot ? `Khe ${String(slot).padStart(2, '0')}` : 'Chưa gán khe'} · ${modem.port_name || modem.iccid}`));
         main.append(opsElement('div', 'ops-list-note', `${opsState.phoneNumbers[modem.iccid] || 'Chưa biết số'} · ${modem.iccid} · ${modem.operator || 'Chưa rõ nhà mạng'} · sóng ${modem.signal_strength || 0}%`));
@@ -714,9 +809,45 @@ function renderMaintenancePreview() {
         if (status && (status.snapshots || []).length >= 2) main.append(opsElement('div', 'ops-list-note mono', balanceSparkline(status.snapshots)));
         const health = (opsState.simHealth || []).find(h => h.iccid === modem.iccid) || {};
         main.append(opsElement('div', 'ops-list-note', `SMS cuối: ${opsDate(health.last_sms_at)} · đăng ký mạng: ${opsDateTime(health.last_registered_at)}`));
-        main.append(opsElement('div', 'schedule-rule', 'Mỗi tháng · gọi thử hoặc SMS · tối đa 1 lần thành công'));
+
+        const rule = opsElement('div', 'schedule-rule keepalive-rule').click(event => event.stopPropagation());
+        const toggleId = `ka-on-${modem.iccid}`;
+        const toggle = $('<input>').attr({ type: 'checkbox', id: toggleId }).addClass('form-check-input').prop('checked', !!ka.enabled).prop('disabled', !isAdmin);
+        toggle.change(function () {
+            toggle.prop('disabled', true);
+            patchModemProfile(modem.iccid, { keepalive_enabled: toggle.prop('checked') }).done(loadOperationsData).fail(function (xhr) {
+                toggle.prop('disabled', false).prop('checked', !!ka.enabled);
+                rule.find('.keepalive-result').text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được công tắc');
+            });
+        });
+        const interval = $('<input>').attr({ type: 'number', min: 1, step: 1, placeholder: String(cfg.interval_days ?? ''), 'aria-label': 'Chu kỳ nuôi (ngày)' }).addClass('form-control form-control-sm mono keepalive-interval').val(modem.keepalive_interval ?? '').prop('disabled', !isAdmin);
+        interval.change(function () {
+            const value = interval.val().trim();
+            patchModemProfile(modem.iccid, { keepalive_interval: value === '' ? null : Number(value) }).done(loadOperationsData).fail(function (xhr) {
+                interval.addClass('is-invalid').attr('title', xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không lưu được chu kỳ');
+            });
+        });
+        rule.append(
+            opsElement('label', 'form-check-label keepalive-toggle').attr('for', toggleId).append(toggle, document.createTextNode(' Nuôi SIM')),
+            opsElement('span', '', ' · chu kỳ '), interval, opsElement('span', '', ` ngày (mặc định ${cfg.interval_days ?? '—'})`)
+        );
+        main.append(rule);
+        main.append(opsElement('div', 'ops-list-note', `Hoạt động gần nhất: ${opsDateTime(ka.last_activity_at)} · Lần nuôi kế tiếp: ${ka.enabled && ka.next_due_at ? opsDateTime(ka.next_due_at) : '—'} · đã gửi tháng này: ${ka.sent_this_month || 0}`));
+        main.append(opsElement('div', 'ops-list-note', keepaliveRunLine(ka.last_run)));
+        const pending = opsState.keepaliveRuns[modem.iccid];
+        let resultText = '';
+        let resultTone = 'muted';
+        if (pending && pending.state === 'running') resultText = 'Đang nuôi…';
+        else if (pending && pending.state === 'error') { resultText = pending.message; resultTone = 'danger'; }
+        else if (pending) {
+            resultText = `Kết quả: ${pending.run.status}${pending.run.reason ? ` · ${pending.run.reason}` : ''}${pending.run.target_phone ? ` → ${pending.run.target_phone}` : ''}`;
+            resultTone = pending.run.status === 'sent' ? 'ok' : 'danger';
+        }
+        main.append(opsElement('div', `ops-list-note keepalive-result tone-${resultTone}`, resultText));
+
         const controls = opsElement('div', 'schedule-controls');
-        controls.append(opsElement('span', `status-chip ${slot ? 'status-ready' : 'status-blocked'}`, slot ? 'Sẵn sàng cấu hình' : 'Cần mapping'));
+        const d = describeKeepalive(ka, Date.now());
+        controls.append(opsElement('span', `status-chip status-${d.tone === 'muted' ? 'blocked' : d.tone}`, d.label));
         const check = opsState.balanceChecks[modem.iccid] || {};
         const balanceButton = opsElement('button', 'btn btn-sm btn-outline-secondary');
         const buttonLabels = { checking: 'Đang kiểm tra…', timeout: 'Thử kiểm tra lại', error: 'Thử kiểm tra lại', done: 'Kiểm tra lại' };
@@ -727,7 +858,13 @@ function renderMaintenancePreview() {
             requestBalanceCheck(modem);
         });
         controls.append(balanceButton);
-        controls.append($('<button>').addClass('btn btn-sm btn-outline-secondary').prop('disabled', true).text('Chưa kích hoạt'));
+        if (isAdmin) {
+            const runButton = opsElement('button', 'btn btn-sm btn-dark').attr('type', 'button').html('<i class="bi bi-send"></i> Nuôi ngay');
+            runButton.prop('disabled', !configOn || !ka.enabled || !!(pending && pending.state === 'running'))
+                .attr('title', !configOn ? 'Công tắc tổng đang tắt trong config.yaml' : !ka.enabled ? 'Bật "Nuôi SIM" trước' : '')
+                .click(function (event) { event.stopPropagation(); requestKeepaliveRun(ka); });
+            controls.append(runButton);
+        }
         card.append(main, controls);
         list.append(card);
 
@@ -843,7 +980,7 @@ function renderOperationsConsole() {
     renderTray();
     renderBayCalibration();
     renderSlotHistory();
-    renderMaintenancePreview();
+    renderMaintenance();
     renderAlertCenter();
     renderReportPreview();
     renderAuditPreview();
@@ -856,13 +993,15 @@ function loadOperationsData() {
         $.get('/api/v1/sms', { page: 1, limit: 200 }),
         $.get('/api/v1/bays'),
         $.get('/api/v1/balance/status'),
-        $.get('/api/v1/sim-health')
-    ).done(function (modemResponse, smsResponse, bayResponse, balanceResponse, healthResponse) {
+        $.get('/api/v1/sim-health'),
+        $.get('/api/v1/keepalive/status')
+    ).done(function (modemResponse, smsResponse, bayResponse, balanceResponse, healthResponse, keepaliveResponse) {
         opsState.modems = modemResponse[0] || [];
         opsState.messages = (smsResponse[0] && smsResponse[0].data) || [];
         opsState.bays = bayResponse[0] || [];
         opsState.balanceStatus = balanceResponse[0] || [];
         opsState.simHealth = healthResponse[0] || [];
+        opsState.keepalive = keepaliveResponse[0] || { config: {}, items: [] };
         opsState.modems.forEach(modem => {
             if (modem.phone_number) opsState.phoneNumbers[modem.iccid] = modem.phone_number;
         });
@@ -948,7 +1087,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
