@@ -860,6 +860,7 @@ function renderMaintenance() {
     const slots = opsSlotByICCID();
     const route = window.currentAppRoute ? window.currentAppRoute() : { view: 'maintenance', iccid: '' };
     const isAdmin = typeof auth !== 'undefined' && auth.role === 'admin';
+    $('#btn-check-all').toggleClass('d-none', !isAdmin);
     const cfg = opsState.keepalive.config || {};
     const items = opsState.keepalive.items || [];
     const keepalive = opsKeepaliveByICCID();
@@ -1462,6 +1463,26 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
         window.navigateApp(view);
     });
     $('#ops-maint-view button').click(function () { opsMaintenanceView($(this).data('view')); renderMaintenance(); });
+    // Kiểm tra toàn bộ: ép đọc số dư mọi SIM online (bỏ luật 20 giờ) + tra số cho SIM chưa biết số, rồi tải lại.
+    $('#btn-check-all').click(function () {
+        const button = $(this);
+        const status = $('#ops-check-all-status');
+        button.prop('disabled', true);
+        status.text('Đang yêu cầu…');
+        const missing = opsState.modems.filter(m => opsIsOnline(m) && !m.phone_number);
+        missing.forEach(m => requestPhoneLookup(m.iccid));
+        $.ajax({ url: '/api/v1/balance/run', method: 'POST', contentType: 'application/json', data: JSON.stringify({ force: true }) })
+            .done(function (response) {
+                const n = Number(response.requested || 0);
+                const wait = Math.min(120000, 3000 * n + 25000);
+                status.text(`Đang đọc số dư ${n} SIM${missing.length ? ` và tra số ${missing.length} SIM` : ''} · tải lại sau ~${Math.round(wait / 1000)} giây`);
+                window.setTimeout(function () { loadOperationsData(); status.text(''); button.prop('disabled', false); }, wait);
+            })
+            .fail(function (xhr) {
+                status.text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gửi được yêu cầu');
+                button.prop('disabled', false);
+            });
+    });
     $('#audit-username, #audit-action, #audit-from, #audit-to').on('change', function () { opsState.auditPage = 1; loadAudit(); });
     $('#audit-prev').click(function () { opsState.auditPage = Math.max(1, (opsState.auditPage || 1) - 1); loadAudit(); });
     $('#audit-next').click(function () { opsState.auditPage = (opsState.auditPage || 1) + 1; loadAudit(); });
