@@ -700,8 +700,80 @@ function loadOperationsData() {
     });
 }
 
+const TRAY_SLOTS = 32;
+const SWAP_HIGHLIGHT_MS = 24 * 60 * 60 * 1000;
+
+function trayTone(bay) {
+    if (!bay) return 'missing';
+    if (!bay.current_iccid) return 'empty';
+    if (bay.status !== 'online') return 'offline';
+    if ((bay.signal_strength || 0) < 20) return 'weak';
+    return 'online';
+}
+
+function buildTrayCells(bays, now) {
+    const bySlot = {};
+    const unassigned = [];
+    (bays || []).forEach(bay => {
+        if (bay.slot_number) bySlot[bay.slot_number] = bay; else unassigned.push(bay);
+    });
+    const cells = [];
+    for (let slot = 1; slot <= TRAY_SLOTS; slot += 1) {
+        const bay = bySlot[slot];
+        const swapped = !!(bay && bay.last_event_at && (now - new Date(bay.last_event_at).getTime()) < SWAP_HIGHLIGHT_MS);
+        cells.push({ slot, bay: bay || null, tone: trayTone(bay), swapped });
+    }
+    return { cells, unassigned };
+}
+
+function slotEventDay(event) {
+    const d = new Date(event.detected_at);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function groupSlotEventsByDay(events) {
+    const sorted = (events || []).slice().sort((a, b) => new Date(b.detected_at) - new Date(a.detected_at));
+    const groups = [];
+    sorted.forEach(event => {
+        const day = slotEventDay(event);
+        let group = groups[groups.length - 1];
+        if (!group || group.day !== day) {
+            group = { day, events: [] };
+            groups.push(group);
+        }
+        group.events.push(event);
+    });
+    return groups;
+}
+
+function slotLabel(slot) {
+    return slot ? `Khe ${slot}` : 'Chưa gán khe';
+}
+
+function describeSlotEvent(event) {
+    let path;
+    let balanceNote;
+    if (event.event === 'moved') {
+        path = `${slotLabel(event.from_slot)} → ${slotLabel(event.to_slot)}`;
+        balanceNote = 'số dư lúc vào khe';
+    } else if (event.event === 'removed') {
+        path = `${slotLabel(event.from_slot)} → rút ra`;
+        balanceNote = 'số dư lúc rời khe';
+    } else {
+        path = slotLabel(event.to_slot);
+        balanceNote = 'số dư lúc vào khe';
+    }
+    const hasBalance = event.balance_vnd !== null && event.balance_vnd !== undefined;
+    return {
+        path,
+        tone: event.event,
+        balance: hasBalance ? opsMoney(event.balance_vnd) : '—',
+        balanceNote: hasBalance ? balanceNote : 'USSD quá hạn'
+    };
+}
+
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
