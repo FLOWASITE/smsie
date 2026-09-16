@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -179,4 +179,9 @@ test('formatReportRow: số có dấu chấm nghìn, null → —, delta có d�
     assert.equal(empty.balanceDelta, '—');
     assert.equal(empty.smsReceived, '0');
     assert.equal(formatReportRow({ balance_delta: 500 }).balanceDelta, '+500');
+});
+
+test('localMonth: theo giờ máy, đệm 0', () => {
+    assert.equal(localMonth(new Date(2026, 0, 1, 0, 30)), '2026-01');
+    assert.equal(localMonth(new Date(2026, 8, 16)), '2026-09');
 });

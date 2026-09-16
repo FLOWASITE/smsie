@@ -19,7 +19,7 @@ type Row struct {
 	SlotNumber    *int   `json:"slot_number"`
 	SMSReceived   int64  `json:"sms_received"`
 	SMSSent       int64  `json:"sms_sent"`
-	SMSFailed     int64  `json:"sms_failed"` // ponytail: model.SMS chưa có cột status → luôn 0; thêm khi worker ghi kết quả gửi
+	SMSFailed     int64  `json:"sms_failed"` // audit_logs sms.send status>=400 (model.SMS không có cột status)
 	Calls         int64  `json:"calls"`
 	CallSeconds   int64  `json:"call_seconds"`
 	BalanceStart  *int64 `json:"balance_start"`
@@ -108,6 +108,10 @@ func Monthly(db *gorm.DB, month time.Time, allowed []string) (Report, error) {
 	if err != nil {
 		return r, err
 	}
+	failed, err := group(&model.AuditLog{}, "at", "COUNT(*) AS n", "action = ? AND status >= 400", "sms.send")
+	if err != nil {
+		return r, err
+	}
 	calls, err := group(&model.CallRecording{}, "created_at", "COUNT(*) AS n, COALESCE(SUM(duration_seconds),0) AS s", "")
 	if err != nil {
 		return r, err
@@ -144,6 +148,7 @@ func Monthly(db *gorm.DB, month time.Time, allowed []string) (Report, error) {
 		}
 		row.SMSReceived = recv[m.ICCID].N
 		row.SMSSent = sent[m.ICCID].N
+		row.SMSFailed = failed[m.ICCID].N
 		row.Calls, row.CallSeconds = calls[m.ICCID].N, calls[m.ICCID].S
 		row.SlotEvents = slots[m.ICCID].N
 		row.KeepaliveSent = keep[m.ICCID].N

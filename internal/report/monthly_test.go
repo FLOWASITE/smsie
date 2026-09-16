@@ -17,7 +17,7 @@ func seed(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.CallRecording{}, &model.BalanceSnapshot{}, &model.SimSlotEvent{}, &model.KeepaliveRun{}, &model.BalanceAlert{}, &model.SimAlert{}); err != nil {
+	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.CallRecording{}, &model.BalanceSnapshot{}, &model.SimSlotEvent{}, &model.KeepaliveRun{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.AuditLog{}); err != nil {
 		t.Fatal(err)
 	}
 	slot3 := 3
@@ -51,6 +51,10 @@ func seed(t *testing.T) *gorm.DB {
 	db.Create(&model.BalanceAlert{ICCID: "SIM-A", Kind: "low", SentAt: sep})
 	db.Create(&model.SimAlert{ICCID: "SIM-A", Kind: "no_sms", SentAt: sep})
 	db.Create(&model.SimAlert{ICCID: "SIM-A", Kind: "no_sms", SentAt: after})
+	db.Create(&model.AuditLog{ICCID: "SIM-A", Action: "sms.send", Status: 502, At: sep})
+	db.Create(&model.AuditLog{ICCID: "SIM-A", Action: "sms.send", Status: 200, At: sep})    // thành công: không đếm
+	db.Create(&model.AuditLog{ICCID: "SIM-A", Action: "sms.send", Status: 500, At: before}) // ngoài tháng
+	db.Create(&model.AuditLog{ICCID: "SIM-A", Action: "call.dial", Status: 500, At: sep})   // hành động khác
 	return db
 }
 
@@ -69,7 +73,7 @@ func TestMonthlyCountsAndBoundaries(t *testing.T) {
 	if a.ICCID != "SIM-A" || a.SlotNumber == nil || *a.SlotNumber != 1 || b.ICCID != "SIM-B" || b.SlotNumber == nil || *b.SlotNumber != 3 {
 		t.Fatalf("thứ tự/khe sai: %+v %+v", a, b)
 	}
-	if a.SMSReceived != 2 || a.SMSSent != 1 || a.SMSFailed != 0 || a.Calls != 2 || a.CallSeconds != 75 || a.SlotEvents != 1 || a.KeepaliveSent != 1 || a.Alerts != 2 {
+	if a.SMSReceived != 2 || a.SMSSent != 1 || a.SMSFailed != 1 || a.Calls != 2 || a.CallSeconds != 75 || a.SlotEvents != 1 || a.KeepaliveSent != 1 || a.Alerts != 2 {
 		t.Fatalf("SIM-A = %+v", a)
 	}
 	if a.BalanceStart == nil || *a.BalanceStart != 50000 || a.BalanceEnd == nil || *a.BalanceEnd != 35000 || a.BalanceDelta == nil || *a.BalanceDelta != -15000 {
@@ -110,7 +114,7 @@ func TestWriteCSV(t *testing.T) {
 		t.Fatalf("thiếu BOM/tiêu đề Việt: %q", s[:80])
 	}
 	lines := strings.Split(strings.TrimSpace(s), "\n")
-	if len(lines) != 4 || !strings.HasPrefix(lines[1], "SIM-A,0911,1,2,1,0,2,75,50000,35000,-15000,1,1,2") || !strings.HasPrefix(lines[2], "SIM-B,0922,3,0,0,0,0,0,,,,") || !strings.HasPrefix(lines[3], "Tổng,") {
+	if len(lines) != 4 || !strings.HasPrefix(lines[1], "SIM-A,0911,1,2,1,1,2,75,50000,35000,-15000,1,1,2") || !strings.HasPrefix(lines[2], "SIM-B,0922,3,0,0,0,0,0,,,,") || !strings.HasPrefix(lines[3], "Tổng,") {
 		t.Fatalf("csv:\n%s", s)
 	}
 }

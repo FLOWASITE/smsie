@@ -22,7 +22,7 @@ func newReportHandlerTest(t *testing.T) *ReportHandler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.UserModemPermission{}, &model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.CallRecording{}, &model.BalanceSnapshot{}, &model.SimSlotEvent{}, &model.KeepaliveRun{}, &model.BalanceAlert{}, &model.SimAlert{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.UserModemPermission{}, &model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.CallRecording{}, &model.BalanceSnapshot{}, &model.SimSlotEvent{}, &model.KeepaliveRun{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.AuditLog{}); err != nil {
 		t.Fatal(err)
 	}
 	db.Create(&model.Modem{ICCID: "ICCID-1"})

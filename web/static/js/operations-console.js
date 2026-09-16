@@ -984,8 +984,14 @@ function formatReportRow(row) {
     };
 }
 
+// localMonth: YYYY-MM theo giờ máy (toISOString là UTC → sai ngày 1 trước 7h sáng).
+function localMonth(d) {
+    d = d || new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function currentReportMonth() {
-    return $('#report-month').val() || new Date().toISOString().slice(0, 7);
+    return $('#report-month').val() || localMonth();
 }
 
 function loadMonthlyReport() {
@@ -1259,7 +1265,7 @@ function describeSlotEvent(event) {
 }
 
 if (typeof module !== 'undefined') {
-    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow };
+    module.exports = { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth };
 }
 
 if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function () {
@@ -1316,7 +1322,7 @@ if (typeof window !== 'undefined' && window.jQuery) $(document).ready(function (
             status.text(xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Không gửi được yêu cầu đọc số dư.');
         }).always(function () { button.prop('disabled', false); });
     });
-    $('#report-month').val(new Date().toISOString().slice(0, 7)).on('change', loadMonthlyReport);
+    $('#report-month').val(localMonth()).on('change', loadMonthlyReport);
     $('#btn-report-csv').click(async function () {
         const month = currentReportMonth();
         try {
