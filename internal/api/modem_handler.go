@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -401,9 +403,22 @@ func (h *ModemHandler) UpdateProfile(c *gin.Context) {
 		HardwarePath *string `json:"hardware_path"`
 		BalanceVND   *int64  `json:"balance_vnd"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// Bind qua raw JSON để phân biệt low_balance_vnd = null (về mặc định) với không gửi.
+	var raw map[string]json.RawMessage
+	body, _ := io.ReadAll(c.Request.Body)
+	if err := json.Unmarshal(body, &raw); err != nil || json.Unmarshal(body, &req) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid profile data"})
 		return
+	}
+	lowRaw, hasLow := raw["low_balance_vnd"]
+	var low *int64
+	if hasLow && string(lowRaw) != "null" {
+		var v int64
+		if err := json.Unmarshal(lowRaw, &v); err != nil || v < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "low_balance_vnd must be a non-negative integer"})
+			return
+		}
+		low = &v
 	}
 	if req.PhoneNumber != nil {
 		phone := strings.TrimSpace(*req.PhoneNumber)
@@ -442,6 +457,9 @@ func (h *ModemHandler) UpdateProfile(c *gin.Context) {
 	if req.BalanceVND != nil {
 		updates["balance_vnd"] = *req.BalanceVND
 		updates["balance_updated_at"] = time.Now()
+	}
+	if hasLow {
+		updates["low_balance_vnd"] = low
 	}
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No profile fields supplied"})

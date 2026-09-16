@@ -16,8 +16,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/pccr10001/smsie/internal/api"
+	"github.com/pccr10001/smsie/internal/balance"
 	"github.com/pccr10001/smsie/internal/calling"
 	"github.com/pccr10001/smsie/internal/config"
+	"github.com/pccr10001/smsie/internal/logic"
 	"github.com/pccr10001/smsie/internal/mccmnc"
 	"github.com/pccr10001/smsie/internal/model"
 	"github.com/pccr10001/smsie/internal/repository"
@@ -107,6 +109,11 @@ func main() {
 		DTMFDurationMillis: config.AppConfig.Calling.SIP.DTMFDurationMillis,
 	}, stdLogger, sipSyncStop)
 
+	sched := balance.NewScheduler(db, wm, logic.NewWebhookService(repository.NewWebhookRepository(db)), config.AppConfig.Balance)
+	schedStop := make(chan struct{})
+	defer close(schedStop)
+	go sched.Run(schedStop)
+
 	// 6. Start Server
 	// Load Templates
 	r.LoadHTMLGlob("web/templates/*")
@@ -119,6 +126,7 @@ func main() {
 	// Setup Routes
 	mh := api.NewModemHandler(db, wm, callMgr)
 	bh := api.NewBayHandler(db, wm)
+	balh := api.NewBalanceHandler(db, sched)
 	sh := api.NewSMSHandler(db)
 	wh := api.NewWebhookHandler(db)
 	uh := api.NewUserHandler(db)
@@ -145,6 +153,7 @@ func main() {
 
 			authGroup.GET("/modems", mh.ListModems)
 			authGroup.GET("/bays", bh.List)
+			authGroup.GET("/balance/status", balh.Status)
 			authGroup.GET("/slot-events", bh.ListEvents)
 			authGroup.GET("/modems/:iccid", mh.GetModem)
 			authGroup.PUT("/modems/:iccid", mh.UpdateModem)
@@ -175,6 +184,8 @@ func main() {
 				adminGroup.DELETE("/modems/:iccid", mh.DeleteModem)
 				adminGroup.PATCH("/modems/:iccid/profile", mh.UpdateProfile)
 				adminGroup.PATCH("/bays/:imei", bh.Assign)
+				adminGroup.GET("/balance/alerts", balh.Alerts)
+				adminGroup.POST("/balance/run", balh.RunNow)
 				adminGroup.GET("/admin/backup", backupHandler.Download)
 
 				adminGroup.GET("/users", uh.ListUsers)
