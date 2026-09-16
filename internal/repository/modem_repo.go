@@ -40,6 +40,26 @@ func (r *ModemRepository) UpdateBalance(iccid string, balance int64, updatedAt t
 	}).Error
 }
 
+// UpdatePlanInfo chỉ ghi đè trường nào tin nhà mạng có; plan_updated_at/plan_raw luôn cập nhật.
+func (r *ModemRepository) UpdatePlanInfo(iccid string, info model.PlanInfo, updatedAt time.Time) error {
+	fields := map[string]interface{}{"plan_updated_at": updatedAt, "plan_raw": info.Raw}
+	if info.PlanExpiresAt != nil {
+		fields["plan_expires_at"] = info.PlanExpiresAt
+	}
+	if info.FreeMinutes != nil {
+		fields["free_minutes"] = info.FreeMinutes
+		fields["free_minutes_expires_at"] = info.FreeMinutesExpiresAt
+	}
+	if info.FreeSMS != nil {
+		fields["free_sms"] = info.FreeSMS
+		fields["free_sms_expires_at"] = info.FreeSMSExpiresAt
+	}
+	if info.DataMB != nil {
+		fields["data_mb"] = info.DataMB
+	}
+	return r.db.Model(&model.Modem{}).Where("iccid = ?", iccid).Updates(fields).Error
+}
+
 func (r *ModemRepository) TouchRegistered(iccid string, at time.Time) error {
 	return r.db.Model(&model.Modem{}).Where("iccid = ?", iccid).Update("last_registered_at", at).Error
 }

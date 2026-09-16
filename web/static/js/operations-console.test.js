@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, maintenanceViewFromStorage, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart } = require('./operations-console.js');
+const { balanceNeedsRefresh, buildOpsCsv, describeOpsMessageRoute, groupOpsMessages, summarizeOpsData, buildTrayCells, groupSlotEventsByDay, describeSlotEvent, bayBalanceLabel, describeBalanceLevel, balanceSparkline, describeHealthFinding, describePlan, describeKeepalive, keepaliveNextRun, carrierName, describeKeepaliveRun, sortMaintenanceModems, maintenanceViewFromStorage, describePhoneLookup, describeAudit, auditCsv, formatReportRow, localMonth, formatBackupSize, describeBackupSchedule, waitForRestart } = require('./operations-console.js');
 
 test('balance refresh is automatic only when missing or older than one day', () => {
     assert.equal(balanceNeedsRefresh({}), true);
@@ -100,6 +100,31 @@ test('describeSlotEvent renders path and balance label', () => {
 test('bayBalanceLabel shows Chưa kiểm tra until USSD has run', () => {
     assert.equal(bayBalanceLabel({ balance_vnd: 0 }), 'Chưa kiểm tra');
     assert.equal(bayBalanceLabel({ balance_vnd: 48500, balance_updated_at: '2026-09-16T00:00:00Z' }), '48.500 đ');
+});
+
+test('describePlan: hạn TK đỏ khi ≤7 ngày, ẩn phần thiếu, dấu gạch khi chưa biết', () => {
+    const now = new Date('2026-09-16T10:00:00+07:00').getTime();
+    const modem = { plan_expires_at: '2026-10-13T00:00:00+07:00', free_minutes: 10, free_minutes_expires_at: '2026-10-14T00:00:00+07:00', free_sms: 9, free_sms_expires_at: '2026-10-14T00:00:00+07:00', data_mb: 100, plan_updated_at: '2026-09-16T09:30:00+07:00' };
+    const d = describePlan(modem, now);
+    assert.equal(d.expiry, '13/10/2026');
+    assert.equal(d.expiryTone, '');
+    assert.equal(d.minutes, '10 phút');
+    assert.equal(d.minutesUntil, 'đến 14/10');
+    assert.equal(d.sms, '9 SMS');
+    assert.equal(d.smsUntil, 'đến 14/10');
+    assert.equal(d.data, '100 MB');
+    assert.equal(d.line, 'Hạn TK 13/10 · 10 phút · 9 SMS · 100 MB');
+    assert.match(d.title, /^TK chính hết hạn 13\/10\/2026 · cập nhật 16\/09 \d{2}:\d{2}$/);
+    assert.equal(describePlan({ plan_expires_at: '2026-09-20T00:00:00+07:00' }, now).expiryTone, 'danger');
+    assert.equal(describePlan({ plan_expires_at: '2026-09-10T00:00:00+07:00' }, now).expiryTone, 'danger');
+    assert.equal(describePlan({ data_mb: 1536 }, now).data, '1,5 GB');
+    assert.equal(describePlan({ free_sms: 9 }, now).line, '9 SMS');
+    assert.deepEqual(describePlan({}, now), { expiry: '—', expiryTone: '', minutes: '—', sms: '—', data: '—', head: '', title: '', minutesUntil: '', smsUntil: '', line: '' });
+});
+
+test('describeHealthFinding: plan_expiring warning, danger khi quá hạn', () => {
+    assert.deepEqual(describeHealthFinding({ kind: 'plan_expiring', detail: 'TK chính hết hạn 21/09/2026 (còn 5 ngày)' }), { tone: 'warning', label: 'TK chính hết hạn 21/09/2026 (còn 5 ngày)' });
+    assert.equal(describeHealthFinding({ kind: 'plan_expiring', detail: 'TK chính hết hạn 13/09/2026 (đã quá hạn 3 ngày)' }).tone, 'danger');
 });
 
 test('describeHealthFinding: no_sms/unregistered danger, absent warning, label = detail', () => {

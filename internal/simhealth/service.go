@@ -39,6 +39,7 @@ type Item struct {
 	FirstSeenAt      *time.Time `json:"first_seen_at,omitempty"`
 	InBay            bool       `json:"in_bay"`
 	LastRemovedAt    *time.Time `json:"last_removed_at,omitempty"`
+	PlanExpiresAt    *time.Time `json:"plan_expires_at,omitempty"`
 	Findings         []Finding  `json:"findings"`
 }
 
@@ -72,10 +73,10 @@ func (s *Service) Collect() ([]Item, error) {
 		lastRemoved[e.ICCID] = e.DetectedAt
 	}
 	now := time.Now()
-	cfg := Config{NoSMSDays: s.cfg.NoSMSDays, UnregisteredHours: s.cfg.UnregisteredHours, AbsentDays: s.cfg.AbsentDays}
+	cfg := Config{NoSMSDays: s.cfg.NoSMSDays, UnregisteredHours: s.cfg.UnregisteredHours, AbsentDays: s.cfg.AbsentDays, PlanWarnDays: s.cfg.PlanWarnDays}
 	out := make([]Item, 0, len(modems))
 	for _, m := range modems {
-		it := Item{ICCID: m.ICCID, PhoneNumber: m.PhoneNumber, SlotNumber: m.SlotNumber, LastRegisteredAt: m.LastRegisteredAt, FirstSeenAt: m.FirstSeenAt, Findings: []Finding{}}
+		it := Item{ICCID: m.ICCID, PhoneNumber: m.PhoneNumber, SlotNumber: m.SlotNumber, LastRegisteredAt: m.LastRegisteredAt, FirstSeenAt: m.FirstSeenAt, PlanExpiresAt: m.PlanExpiresAt, Findings: []Finding{}}
 		if slot, ok := slotByICCID[m.ICCID]; ok {
 			it.InBay = true
 			if slot != nil {
@@ -93,7 +94,7 @@ func (s *Service) Collect() ([]Item, error) {
 				it.Online = true
 			}
 		}
-		in := Input{ICCID: m.ICCID, Online: it.Online, LastRegisteredAt: it.LastRegisteredAt, FirstSeenAt: it.FirstSeenAt, LastSMSAt: it.LastSMSAt, LastRemovedAt: it.LastRemovedAt, InBay: it.InBay}
+		in := Input{ICCID: m.ICCID, Online: it.Online, LastRegisteredAt: it.LastRegisteredAt, FirstSeenAt: it.FirstSeenAt, LastSMSAt: it.LastSMSAt, LastRemovedAt: it.LastRemovedAt, InBay: it.InBay, PlanExpiresAt: it.PlanExpiresAt}
 		for _, f := range Evaluate(now, cfg, []Input{in}) {
 			f.ICCID = "" // đã nằm trong Item
 			it.Findings = append(it.Findings, f)
@@ -134,7 +135,7 @@ func (s *Service) Evaluate() error {
 	return nil
 }
 
-var emoji = map[string]string{model.SimAlertNoSMS: "🪦", model.SimAlertUnregistered: "📡", model.SimAlertAbsent: "📤"}
+var emoji = map[string]string{model.SimAlertNoSMS: "🪦", model.SimAlertUnregistered: "📡", model.SimAlertAbsent: "📤", model.SimAlertPlanExpiring: "⏰"}
 
 func alertText(it Item, f Finding) string {
 	name := it.PhoneNumber

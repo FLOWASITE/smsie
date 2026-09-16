@@ -2590,6 +2590,11 @@ body {
 .tone-danger.ka-fact-value, td.tone-danger { color: var(--ops-danger); }
 .tone-muted.ka-fact-value { color: var(--ops-muted); }
 
+/* Gói cước bóc từ tin nhà mạng: cột bảng có dòng phụ "đến dd/mm", card gom một dòng. */
+.ka-plan-until { display: block; color: var(--ops-muted); font-size: 0.66rem; line-height: 1.1; }
+.ka-plan { font-size: 0.78rem; color: var(--ops-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ka-plan .tone-danger { color: var(--ops-danger); font-weight: 600; }
+
 .ka-rule {
   display: flex;
   align-items: center;
