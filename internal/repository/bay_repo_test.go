@@ -182,3 +182,29 @@ func TestAssignSlotMovesCacheOfCurrentSim(t *testing.T) {
 		t.Fatalf("expected stale cache cleared, got %v", *stale.SlotNumber)
 	}
 }
+
+func TestObserveInfersSlotForNewBayFromCalibratedNeighbours(t *testing.T) {
+	db := newBayTestDB(t)
+	db.Create(&model.Modem{ICCID: "ICCID-1", IMEI: "IMEI-A", SlotNumber: intp(16)})
+	db.Create(&model.Modem{ICCID: "ICCID-2", IMEI: "IMEI-B", SlotNumber: intp(15)})
+	db.Create(&model.Modem{ICCID: "ICCID-3", IMEI: "IMEI-C"})
+	db.Create(&model.ModemBay{IMEI: "IMEI-A", SlotNumber: intp(16), CurrentICCID: "ICCID-1"})
+	db.Create(&model.ModemBay{IMEI: "IMEI-B", SlotNumber: intp(15), CurrentICCID: "ICCID-2"})
+	db.Create(&model.SimSlotEvent{IMEI: "IMEI-A", ICCID: "ICCID-1", Event: model.SlotEventInserted, PortName: "COM19"})
+	db.Create(&model.SimSlotEvent{IMEI: "IMEI-B", ICCID: "ICCID-2", Event: model.SlotEventInserted, PortName: "COM20"})
+	repo := NewBayRepository(db)
+
+	if _, err := repo.Observe(Observation{IMEI: "IMEI-C", ICCID: "ICCID-3", PortName: "COM25", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	var bay model.ModemBay
+	db.First(&bay, "imei = ?", "IMEI-C")
+	if bay.SlotNumber == nil || *bay.SlotNumber != 10 {
+		t.Fatalf("COM25 phải tự vào khe 10, got %v", bay.SlotNumber)
+	}
+	var m model.Modem
+	db.First(&m, "iccid = ?", "ICCID-3")
+	if m.SlotNumber == nil || *m.SlotNumber != 10 {
+		t.Fatalf("modems.slot_number phải đồng bộ 10, got %v", m.SlotNumber)
+	}
+}
