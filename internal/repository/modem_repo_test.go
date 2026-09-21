@@ -129,3 +129,34 @@ func TestSetPhoneNumberWritesHistoryOnlyWhenChanged(t *testing.T) {
 		t.Fatalf("history rows = %+v", hist)
 	}
 }
+
+// SIM cắm lần đầu được Upsert với KeepaliveEnabled=true; người dùng tắt rồi probe lại
+// (Upsert lần 2) không được bật lại — Upsert chỉ đè imei.
+func TestUpsertKeepsKeepaliveChoice(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Modem{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewModemRepository(db)
+	m := &model.Modem{ICCID: "89840000000000000001", IMEI: "123456789012345", KeepaliveEnabled: true}
+	if err := repo.Upsert(m); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := repo.FindByICCID(m.ICCID)
+	if !got.KeepaliveEnabled {
+		t.Fatal("SIM mới phải mặc định bật nuôi")
+	}
+	if err := db.Model(&model.Modem{}).Where("iccid = ?", m.ICCID).Update("keepalive_enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Upsert(&model.Modem{ICCID: m.ICCID, IMEI: m.IMEI, KeepaliveEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = repo.FindByICCID(m.ICCID)
+	if got.KeepaliveEnabled {
+		t.Fatal("probe lại không được bật lại nuôi mà người dùng đã tắt")
+	}
+}
