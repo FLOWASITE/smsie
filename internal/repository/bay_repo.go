@@ -61,6 +61,10 @@ func (r *BayRepository) Observe(o Observation) ([]model.SimSlotEvent, error) {
 		}
 		d := slotlog.DecideSlotEvents(bays, o.IMEI, o.ICCID)
 		d.Bay.LastSeenAt = &o.At
+		if d.Bay.SlotNumber == nil && len(d.Events) > 0 && d.Events[0].Event == model.SlotEventInserted {
+			d.Bay.SlotNumber = slotlog.InferSlot(knownSlotPorts(tx, bays), o.PortName)
+			d.Events[0].ToSlot = d.Bay.SlotNumber
+		}
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "imei"}},
 			DoUpdates: clause.AssignmentColumns([]string{"current_iccid", "last_seen_at"}),
@@ -257,4 +261,24 @@ func (r *BayRepository) MigrateFromModems() error {
 		}
 	}
 	return nil
+}
+
+// knownSlotPorts trả khe đã hiệu chuẩn → cổng COM lần cuối thấy modem đó (từ sim_slot_events,
+// vì modems.port_name không lưu DB). Dùng cho slotlog.InferSlot.
+func knownSlotPorts(tx *gorm.DB, bays []model.ModemBay) map[int]string {
+	var rows []model.SimSlotEvent
+	tx.Where("id IN (SELECT MAX(id) FROM sim_slot_events GROUP BY imei)").Find(&rows)
+	portByIMEI := make(map[string]string, len(rows))
+	for _, r := range rows {
+		portByIMEI[r.IMEI] = r.PortName
+	}
+	known := map[int]string{}
+	for _, b := range bays {
+		if b.SlotNumber != nil {
+			if p := portByIMEI[b.IMEI]; p != "" {
+				known[*b.SlotNumber] = p
+			}
+		}
+	}
+	return known
 }
