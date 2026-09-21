@@ -193,11 +193,16 @@ function carrierName(code) {
 }
 
 // describeKeepaliveRun: lần chạy cuối → pill { tone, label } (thuần, có test node).
-function describeKeepaliveRun(run) {
+// Lỗi luôn kèm ngày; lỗi cũ hơn 3 ngày hạ xuống 'warning' để không trông như đang cháy.
+const KEEPALIVE_STALE_FAIL_MS = 3 * 24 * 60 * 60 * 1000;
+function describeKeepaliveRun(run, now = new Date()) {
     if (!run) return { tone: 'muted', label: '○ Chưa chạy' };
     const when = run.ran_at ? opsShortDate(run.ran_at) : '';
     if (run.status === 'sent') return { tone: 'ok', label: `● Đã gửi ${when}${run.target_phone ? ` → ${run.target_phone}` : ''}` };
-    if (run.status === 'failed') return { tone: 'danger', label: `● Lỗi: ${run.reason || 'không rõ'}` };
+    if (run.status === 'failed') {
+        const stale = run.ran_at && (now - new Date(run.ran_at)) > KEEPALIVE_STALE_FAIL_MS;
+        return { tone: stale ? 'warning' : 'danger', label: `● Lỗi ${when}: ${run.reason || 'không rõ'}` };
+    }
     return { tone: 'warning', label: `● Bỏ qua: ${run.reason || run.status}` };
 }
 

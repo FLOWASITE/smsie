@@ -238,7 +238,9 @@ test('carrierName: MCC/MNC VN → tên nhà mạng, lạ → nguyên mã, rỗng
 test('describeKeepaliveRun: pill theo trạng thái lần chạy cuối', () => {
     assert.deepEqual(describeKeepaliveRun(null), { tone: 'muted', label: '○ Chưa chạy' });
     assert.deepEqual(describeKeepaliveRun({ status: 'sent', ran_at: '2026-09-12T07:00:00', target_phone: '0924…' }), { tone: 'ok', label: '● Đã gửi 12/09 → 0924…' });
-    assert.deepEqual(describeKeepaliveRun({ status: 'failed', reason: 'modem offline', ran_at: '2026-09-12T07:00:00' }), { tone: 'danger', label: '● Lỗi: modem offline' });
+    const now = new Date('2026-09-13T07:00:00');
+    assert.deepEqual(describeKeepaliveRun({ status: 'failed', reason: 'modem offline', ran_at: '2026-09-12T07:00:00' }, now), { tone: 'danger', label: '● Lỗi 12/09: modem offline' });
+    assert.deepEqual(describeKeepaliveRun({ status: 'failed', reason: 'modem offline', ran_at: '2026-09-01T07:00:00' }, now), { tone: 'warning', label: '● Lỗi 01/09: modem offline' });
     assert.deepEqual(describeKeepaliveRun({ status: 'skipped', reason: 'trần tháng', ran_at: '2026-09-12T07:00:00' }), { tone: 'warning', label: '● Bỏ qua: trần tháng' });
 });
 
