@@ -504,6 +504,8 @@ func (w *ModemWorker) initModem() {
 			ICCID:    iccid,
 			IMEI:     imei,
 			PortName: w.PortName,
+			// SIM mới cắm mặc định BẬT nuôi; Upsert chỉ đè imei nên SIM cũ giữ lựa chọn của người dùng.
+			KeepaliveEnabled: true,
 		}
 
 		if err := w.repo.Upsert(persist); err != nil {
