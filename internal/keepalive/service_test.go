@@ -33,7 +33,7 @@ func newTest(t *testing.T, enabled bool) (*Service, *fakeSender, *gorm.DB) {
 	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.Webhook{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.AuditLog{}); err != nil {
 		t.Fatal(err)
 	}
-	seen := time.Now().Add(-30 * 24 * time.Hour)
+	seen := time.Date(2026, 9, 16, 7, 0, 0, 0, time.Local).Add(-30 * 24 * time.Hour) // cùng mốc với s.now bên dưới, không trôi theo ngày chạy test
 	db.Create(&model.Modem{ICCID: "A", PhoneNumber: "0900000001", FirstSeenAt: &seen, KeepaliveEnabled: true})
 	db.Create(&model.Modem{ICCID: "B", PhoneNumber: "0900000002", FirstSeenAt: &seen})
 	s1, s2 := 1, 2
