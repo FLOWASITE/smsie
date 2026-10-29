@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>vn.jione.smsie-tunnel</string>
+  <key>ProgramArguments</key><array>
+    <string>/opt/homebrew/bin/cloudflared</string><string>--no-autoupdate</string><string>--config</string><string>/opt/smsie/tunnel.yml</string>
+    <string>tunnel</string><string>run</string><string>--token-file</string><string>/opt/smsie/tunnel.token</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/opt/smsie/logs/tunnel.out.log</string>
+  <key>StandardErrorPath</key><string>/opt/smsie/logs/tunnel.err.log</string>
+</dict>
+</plist>

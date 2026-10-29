@@ -1,0 +1,7 @@
+# Ingress cho tunnel sms.jione (tunnel cấu hình local, dashboard không có ingress)
+ingress:
+  - hostname: smsie.jione.vn
+    service: http://127.0.0.1:18080
+  - hostname: sms.jione.vn
+    service: http://127.0.0.1:18080
+  - service: http_status:404
