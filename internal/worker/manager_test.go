@@ -35,3 +35,16 @@ func TestCleanupStoppedWorkersKeepsNonATPortCached(t *testing.T) {
 		t.Fatal("expected intentionally stopped non-AT port to stay cached")
 	}
 }
+
+func TestIsExcludedMacDuplicates(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/dev/tty.usbserial-1410":         true,
+		"/dev/cu.Bluetooth-Incoming-Port": true,
+		"/dev/cu.usbserial-1410":          false,
+		"COM19":                           false,
+	} {
+		if got := isExcluded(p); got != want {
+			t.Errorf("isExcluded(%q) = %v, want %v", p, got, want)
+		}
+	}
+}

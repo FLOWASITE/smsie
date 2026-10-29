@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -162,6 +163,10 @@ func (m *Manager) RemoveWorkerByICCID(iccid string) bool {
 }
 
 func isExcluded(port string) bool {
+	// macOS hiện mỗi cổng hai lần (tty.* gọi vào + cu.* gọi ra) và cả cổng Bluetooth: chỉ giữ cu.*, bỏ Bluetooth.
+	if strings.HasPrefix(port, "/dev/tty.") || strings.Contains(port, "Bluetooth") {
+		return true
+	}
 	for _, excluded := range config.AppConfig.Serial.ExcludePorts {
 		if port == excluded {
 			return true
