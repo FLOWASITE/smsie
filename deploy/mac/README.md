@@ -15,6 +15,17 @@
    Ingress nằm ở `tunnel.yml` (tunnel cấu hình local, dashboard không có). Tắt connector trên Windows
    (`Stop-Service cloudflared; Set-Service cloudflared -StartupType Disabled`) để không chia traffic hai máy.
 4. Nên bật Cloudflare Access cho smsie.jione.vn (Zero Trust → Applications) — trang có OTP/SMS.
+5. SSH từ xa qua `ssh-smsie.jione.vn` (ingress `ssh://localhost:22` trong `tunnel.yml`), cần Remote Login bật:
+   - DNS: CNAME `ssh-smsie` → `9f3549c7-64c8-4688-9e66-b7fd00bd291b.cfargotunnel.com` (proxied) trong zone jione.vn.
+     `cloudflared tunnel route dns` chỉ đúng khi `~/.cloudflared/cert.pem` là của jione.vn (cert hiện tại là kehub.one).
+   - Tạo Access Application (Self-hosted) cho `ssh-smsie.jione.vn` **trước** khi nạp ingress.
+   - Nạp: `sudo install -m 644 tunnel.yml /opt/smsie/tunnel.yml && sudo launchctl kickstart -k system/vn.jione.smsie-tunnel`
+   - Máy khách (`brew install cloudflared` / `winget install Cloudflare.cloudflared`), thêm vào `~/.ssh/config`:
+     ```
+     Host ssh-smsie.jione.vn
+       ProxyCommand cloudflared access ssh --hostname %h
+     ```
+     rồi `ssh flowa@ssh-smsie.jione.vn`.
 
 Log: `/opt/smsie/logs/`. Khởi động lại: `sudo launchctl kickstart -k system/vn.jione.smsie`.
 Khe SIM: tự suy khe chỉ hiểu tên COM — trên Mac hiệu chuẩn khe lại ở tab Khe SIM.

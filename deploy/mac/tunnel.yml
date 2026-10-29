@@ -4,4 +4,7 @@ ingress:
     service: http://127.0.0.1:18080
   - hostname: sms.jione.vn
     service: http://127.0.0.1:18080
+  # SSH vào Mac từ xa, bắt buộc đặt sau Cloudflare Access; máy khách: cloudflared access ssh
+  - hostname: ssh-smsie.jione.vn
+    service: ssh://localhost:22
   - service: http_status:404
