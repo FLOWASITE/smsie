@@ -41,6 +41,12 @@ func TestReceiveDeletesOnlySavedIndexAndDeduplicatesRetry(t *testing.T) {
 				return []string{"+CMGL: 7,0,,20", pdu, "+CMTI: \"MT\",8", "+CMGL: 9,0,,1", "FF", "OK"}
 			case "AT+CMGD=7,0\r":
 				return []string{"ERROR"} // retained on modem, next poll sees same PDU
+			case "AT+CMGD=9,0\r":
+				// PDU "FF" không giải mã được: vẫn được lưu dạng thô nên được phép xoá khỏi SIM.
+				if failDB {
+					t.Error("deleted undecodable SMS that was never saved")
+				}
+				return []string{"ERROR"}
 			default:
 				t.Errorf("unexpected destructive command: %q", command)
 				return []string{"ERROR"}
@@ -62,8 +68,18 @@ func TestReceiveDeletesOnlySavedIndexAndDeduplicatesRetry(t *testing.T) {
 		if !failDB {
 			var count int64
 			db.Model(&model.SMS{}).Count(&count)
-			if count != 1 || deletes != 2 {
+			// 2 tin (1 đọc được + 1 thô), mỗi lượt quét thử xoá cả hai; lượt hai không lưu trùng.
+			if count != 2 || deletes != 4 {
 				t.Fatalf("saved=%d deletion attempts=%d", count, deletes)
+			}
+			var rawOnly model.SMS
+			if err := db.Where("raw_pdu = ?", "FF").First(&rawOnly).Error; err != nil ||
+				!strings.HasPrefix(rawOnly.Content, undecodedPrefix) || rawOnly.Phone != "unknown" || rawOnly.Type != "received" {
+				t.Fatalf("tin thô = %+v, err = %v", rawOnly, err)
+			}
+			var ok model.SMS
+			if err := db.Where("raw_pdu = ?", pdu).First(&ok).Error; err != nil || ok.Content != "OTP 123456" {
+				t.Fatalf("tin đọc được = %+v, err = %v", ok, err)
 			}
 		}
 	}

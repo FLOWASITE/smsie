@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -225,6 +226,7 @@ func (w *ModemWorker) checkSMS(session *atSession) {
 
 	for _, entry := range parseStoredSMS(resp, w.isURC) {
 		if err := w.processPDU(entry.pdu); err != nil {
+			// Chỉ còn lỗi ghi DB mới tới đây: giữ tin trên SIM để lượt sau thử lại, không xoá thứ chưa lưu được.
 			logger.Log.Warnf("[%s] Retaining SMS index %d: %v", w.PortName, entry.index, err)
 			continue
 		}
@@ -295,12 +297,12 @@ func parseCMGLPDUs(response string, isURC func(string) bool) ([]string, bool) {
 	return pdus, seenMessage
 }
 
-func (w *ModemWorker) processPDU(raw string) error {
-	// Hex Decode
+// decodeDeliverPDU giải mã một PDU tin đến (SMS-DELIVER). Khi lỗi vẫn trả những gì đã đọc được
+// (người gửi, thời điểm) để tin được lưu kèm ngữ cảnh.
+func decodeDeliverPDU(raw string) (sender, content string, timestamp time.Time, err error) {
 	b, err := hex.DecodeString(raw)
 	if err != nil {
-		logger.Log.Errorf("[%s] Failed to decode hex PDU: %v", w.PortName, err)
-		return err
+		return "", "", time.Time{}, fmt.Errorf("PDU không phải hex: %w", err)
 	}
 
 	// SMSC Address Handling
@@ -316,53 +318,46 @@ func (w *ModemWorker) processPDU(raw string) error {
 	// Use sms.Unmarshal (Default is AsMT - Mobile Terminated / Received)
 	msg, err := sms.Unmarshal(b)
 	if err != nil {
-		logger.Log.Errorf("[%s] Failed to decode TPDU: %v", w.PortName, err)
-		return err
+		return "", "", time.Time{}, fmt.Errorf("TPDU hỏng: %w", err)
 	}
 	if msg == nil || msg.SmsType() != tpdu.SmsDeliver {
-		return fmt.Errorf("unsupported SMS PDU type; retained for inspection")
+		return "", "", time.Time{}, errors.New("không phải tin đến (SMS-DELIVER)")
 	}
+	sender = msg.OA.Number()
+	timestamp = msg.SCTS.Time
 
-	var content string
-	var sender string
-	var timestamp time.Time = time.Now()
+	// Use tpdu.DecodeUserData to correctly handle GSM7/UCS2 encoding
+	alphabet, err := msg.DCS.Alphabet()
+	if err != nil {
+		return sender, "", timestamp, fmt.Errorf("DCS 0x%02X không hỗ trợ: %w", byte(msg.DCS), err)
+	}
+	ud, err := tpdu.DecodeUserData(msg.UD, msg.UDH, alphabet)
+	if err != nil {
+		return sender, "", timestamp, fmt.Errorf("nội dung (DCS 0x%02X) không giải mã được: %w", byte(msg.DCS), err)
+	}
+	content = string(ud)
+	if content == "" && len(msg.UD) > 0 {
+		content = fmt.Sprintf("UD Hex: %X", msg.UD)
+	}
+	return sender, content, timestamp, nil
+}
 
-	if msg != nil {
-		switch msg.SmsType() {
-		case tpdu.SmsDeliver:
-			sender = msg.OA.Number()
-			timestamp = msg.SCTS.Time
+// undecodedPrefix đánh dấu tin lưu ở dạng thô vì không giải mã được.
+const undecodedPrefix = "[Không giải mã được]"
+
+// processPDU lưu một tin đến vào DB. Trả nil nghĩa là tin đã nằm an toàn trong DB và được phép xoá khỏi SIM.
+//
+// Tin KHÔNG giải mã được vẫn được lưu (nội dung ghi lý do, raw_pdu giữ nguyên bản hex) rồi xoá khỏi SIM.
+// Trước đây tin như vậy bị để lại trên SIM vô thời hạn và không hiện ở đâu cả: bộ nhớ SIM chỉ chứa vài chục
+// tin, đầy là nhà mạng không giao được tin mới — mất OTP mà không có cảnh báo nào.
+func (w *ModemWorker) processPDU(raw string) error {
+	sender, content, timestamp, decErr := decodeDeliverPDU(raw)
+	if decErr != nil {
+		logger.Log.Warnf("[%s] SMS không giải mã được, lưu dạng thô: %v", w.PortName, decErr)
+		content = fmt.Sprintf("%s %v", undecodedPrefix, decErr)
+		if sender == "" {
+			sender = "unknown"
 		}
-
-		// Use tpdu.DecodeUserData to correctly handle GSM7/UCS2 encoding
-		alphabet, alphaErr := msg.DCS.Alphabet()
-		var udContent []byte
-		var decErr error
-
-		if alphaErr != nil {
-			decErr = alphaErr // Handle alpha error as decode error
-		} else {
-			udContent, decErr = tpdu.DecodeUserData(msg.UD, msg.UDH, alphabet)
-		}
-
-		if decErr == nil {
-			content = string(udContent)
-		} else {
-			logger.Log.Warnf("[%s] Failed to decode UD: %v. DCS: %02X.", w.PortName, decErr, msg.DCS)
-			return decErr
-			// Fallback to simpler extraction or raw
-			// If 7-bit, simply casting to string is wrong, but better than nothing for ASCII-like?
-			// Actually better to show hex if it failed
-			content = fmt.Sprintf("Decode Failed (DCS: 0x%02X)", msg.DCS)
-		}
-
-		// Final check
-		if content == "" && len(msg.UD) > 0 {
-			content = fmt.Sprintf("UD Hex: %X", msg.UD)
-		}
-	} else {
-		// Decoding failed entirely previously
-		content = fmt.Sprintf("Failed to decode PDU: %s", raw)
 	}
 
 	logger.Log.Infof("[%s] SMS From %s: %s", w.PortName, sender, content)
@@ -389,9 +384,11 @@ func (w *ModemWorker) processPDU(raw string) error {
 	if !created {
 		return nil
 	}
-	w.capturePhoneNumber(content)
-	w.captureBalance(content)
-	w.capturePlanInfo(content)
+	if decErr == nil {
+		w.capturePhoneNumber(content)
+		w.captureBalance(content)
+		w.capturePlanInfo(content)
+	}
 
 	// Trigger Webhook
 	w.webhookService.Dispatch(sms)
