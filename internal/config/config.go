@@ -38,7 +38,7 @@ type StaffSyncConfig struct {
 	URL     string `mapstructure:"url"`
 	// ClientID — mã app của smsie ở JiOne; trống = dùng jione.client_id.
 	ClientID string `mapstructure:"client_id"`
-	// DonVi — mã đơn vị ở JiOne mà smsie này phục vụ.
+	// DonVi — slug đơn vị ở JiOne mà smsie này phục vụ (không phải uuid hay schema KeHub).
 	DonVi string `mapstructure:"don_vi"`
 	// Key — khoá máy của app. Đặt qua biến môi trường STAFF_SYNC_KEY, đừng ghi vào config.yaml.
 	Key string `mapstructure:"key"`

@@ -105,6 +105,6 @@ staff_sync:
   enabled: false                 # đồng bộ nhân sự từ KeHub qua JiOne Connect (chức năng kehub.nhan_su)
   url: "https://connect.jione.vn/v1/kehub.nhan_su"
   client_id: ""                  # mã app của smsie ở JiOne; trống = dùng jione.client_id
-  don_vi: ""                     # mã đơn vị ở JiOne mà smsie này phục vụ
-  key: ""                        # khoá máy của app — ĐỪNG ghi ở đây, đặt biến môi trường STAFF_SYNC_KEY
+  don_vi: ""                     # SLUG đơn vị ở JiOne mà smsie này phục vụ (không phải uuid, không phải schema cty_… của KeHub)
+  key: ""                        # khoá máy của app (dạng jak_…) — ĐỪNG ghi ở đây, đặt biến môi trường STAFF_SYNC_KEY
   hour: -1                       # 0–23: tự đồng bộ mỗi ngày lúc giờ đó; -1 = chỉ khi bấm nút
