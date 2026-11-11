@@ -528,9 +528,9 @@ function checkAuth() {
 
     // Hide Admin Menus if User
     if (auth.role !== 'admin') {
-        $('#nav-users').addClass('d-none');
+        $('#nav-users, #nav-staff').addClass('d-none');
     } else {
-        $('#nav-users').removeClass('d-none');
+        $('#nav-users, #nav-staff').removeClass('d-none');
     }
 
     $('#nav-apikeys').removeClass('d-none');

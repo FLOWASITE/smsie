@@ -556,6 +556,12 @@ func (h *ModemHandler) DeleteModem(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// Lịch sử giao nhận của SIM này đi theo hồ sơ SIM (như SMS, webhook, quyền).
+	if err := tx.Where("iccid = ?", iccid).Delete(&model.SimAssignment{}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear sim assignments"})
+		return
+	}
 	if err := tx.Where("iccid = ?", iccid).Delete(&model.Modem{}).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

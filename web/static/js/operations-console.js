@@ -17,6 +17,7 @@ const opsState = {
     simHealth: [],
     keepalive: { config: {}, items: [] },
     keepaliveRuns: {},
+    holders: [],
     loadedAt: null
 };
 
@@ -588,6 +589,10 @@ function showTrayPop(cell, card) {
     if (status && (status.level === 'low' || status.level === 'forecast' || (status.level === 'ok' && status.days_left != null))) rows.push(['Dự kiến hết', describeBalanceLevel(status).label]);
     const health = bay.current_iccid ? opsHealthByICCID()[bay.current_iccid] : null;
     if (health) rows.push(['Sức khoẻ', health.findings.map(f => f.detail).join(' · ')]);
+    if (bay.current_iccid) {
+        const holder = (opsState.holders || []).find(h => h.iccid === bay.current_iccid);
+        rows.push(['Nhân sự', holder ? `${holder.staff_name}${holder.department ? ' · ' + holder.department : ''}` : 'Chưa giao']);
+    }
     rows.forEach(([k, v]) => dl.append($('<dt>').text(k), $('<dd>').text(v)));
     pop.append(dl);
     if (bay.current_iccid) {
@@ -1131,7 +1136,8 @@ function formatReportRow(row) {
         deltaTone: delta === null || delta === undefined ? '' : delta < 0 ? 'text-danger' : delta > 0 ? 'text-success' : '',
         slotEvents: num(r.slot_events || 0),
         keepaliveSent: num(r.keepalive_sent || 0),
-        alerts: num(r.alerts || 0)
+        alerts: num(r.alerts || 0),
+        holder: r.holder || '—'
     };
 }
 
@@ -1271,9 +1277,9 @@ function renderReportPreview() {
     const body = $('#ops-report-body').empty();
     const foot = $('#ops-report-foot').empty();
     $('#report-month-label').text(`Tháng ${rep.month || currentReportMonth()}`);
-    const cells = f => [f.slot, f.iccid, f.phone, f.smsReceived, f.smsSent, f.smsFailed, f.calls, f.callMinutes, f.balanceStart, f.balanceEnd, f.balanceDelta, f.slotEvents, f.keepaliveSent, f.alerts];
+    const cells = f => [f.slot, f.iccid, f.phone, f.smsReceived, f.smsSent, f.smsFailed, f.calls, f.callMinutes, f.balanceStart, f.balanceEnd, f.balanceDelta, f.slotEvents, f.keepaliveSent, f.alerts, f.holder];
     if (!(rep.rows || []).length) {
-        body.append($('<tr>').append($('<td>').attr('colspan', 14).append(opsElement('div', 'ops-empty', 'Không có SIM nào trong tháng này.'))));
+        body.append($('<tr>').append($('<td>').attr('colspan', 15).append(opsElement('div', 'ops-empty', 'Không có SIM nào trong tháng này.'))));
     }
     (rep.rows || []).forEach(row => {
         const f = formatReportRow(row);
@@ -1284,7 +1290,7 @@ function renderReportPreview() {
     if ((rep.rows || []).length) {
         const f = formatReportRow(Object.assign({}, rep.totals, { iccid: 'Tổng', phone_number: '', slot_number: null }));
         const tr = $('<tr>').addClass('fw-semibold');
-        cells(f).forEach((value, i) => tr.append($('<td>').toggleClass(f.deltaTone, i === 10 && !!f.deltaTone).text(i === 0 || i === 2 ? '' : value)));
+        cells(f).forEach((value, i) => tr.append($('<td>').toggleClass(f.deltaTone, i === 10 && !!f.deltaTone).text(i === 0 || i === 2 || i === 14 ? '' : value)));
         foot.append(tr);
     }
 
@@ -1314,7 +1320,10 @@ const AUDIT_LABELS = {
     'user.create': 'Tạo người dùng', 'user.delete': 'Xoá người dùng', 'user.permissions': 'Đổi quyền người dùng',
     'apikey.create': 'Tạo API key', 'apikey.rotate': 'Xoay API key', 'apikey.delete': 'Xoá API key',
     'webhook.create': 'Tạo webhook', 'webhook.delete': 'Xoá webhook', 'auth.password': 'Đổi mật khẩu',
-    'backup.ok': 'Sao lưu thành công', 'backup.failed': 'Sao lưu lỗi', 'restore.staged': 'Xếp lịch khôi phục', 'restore.applied': 'Đã khôi phục'
+    'backup.ok': 'Sao lưu thành công', 'backup.failed': 'Sao lưu lỗi', 'restore.staged': 'Xếp lịch khôi phục', 'restore.applied': 'Đã khôi phục',
+    'sim.assign': 'Giao SIM / đổi người giữ', 'sim.release': 'Thu hồi SIM', 'sim.transfer': 'Bàn giao SIM',
+    'staff.create': 'Thêm nhân sự', 'staff.update': 'Sửa nhân sự', 'staff.delete': 'Xoá nhân sự', 'staff.leave': 'Nhân sự nghỉ việc', 'staff.return': 'Nhân sự làm lại',
+    'auth.login': 'Đăng nhập', 'auth.jione_login': 'Đăng nhập Jione', 'auth.jione_logout': 'Jione báo đăng xuất'
 };
 function describeAudit(action) {
     return AUDIT_LABELS[action] || action || '—';
@@ -1394,14 +1403,16 @@ function loadOperationsData() {
         $.get('/api/v1/bays'),
         $.get('/api/v1/balance/status'),
         $.get('/api/v1/sim-health'),
-        $.get('/api/v1/keepalive/status')
-    ).done(function (modemResponse, smsResponse, bayResponse, balanceResponse, healthResponse, keepaliveResponse) {
+        $.get('/api/v1/keepalive/status'),
+        $.get('/api/v1/sim-holders')
+    ).done(function (modemResponse, smsResponse, bayResponse, balanceResponse, healthResponse, keepaliveResponse, holderResponse) {
         opsState.modems = modemResponse[0] || [];
         opsState.messages = (smsResponse[0] && smsResponse[0].data) || [];
         opsState.bays = bayResponse[0] || [];
         opsState.balanceStatus = balanceResponse[0] || [];
         opsState.simHealth = healthResponse[0] || [];
         opsState.keepalive = keepaliveResponse[0] || { config: {}, items: [] };
+        opsState.holders = holderResponse[0] || [];
         opsState.modems.forEach(modem => {
             if (modem.phone_number) opsState.phoneNumbers[modem.iccid] = modem.phone_number;
         });

@@ -206,6 +206,7 @@ func main() {
 	auditHandler := api.NewAuditHandler(db)
 	reportHandler := api.NewReportHandler(db)
 	recordingHandler := api.NewCallRecordingHandler(db, "recordings")
+	staffHandler := api.NewStaffHandler(db)
 	mcpHTTP := api.NewMCPHTTPServer(db, wm)
 	r.Any("/mcp", gin.WrapH(mcpHTTP.Handler()))
 
@@ -242,6 +243,7 @@ func main() {
 			authGroup.GET("/sim-health", shh.Status)
 			authGroup.GET("/keepalive/status", kah.Status)
 			authGroup.GET("/slot-events", bh.ListEvents)
+			authGroup.GET("/sim-holders", staffHandler.Holders)
 			authGroup.GET("/modems/:iccid", mh.GetModem)
 			authGroup.PUT("/modems/:iccid", mh.UpdateModem)
 			authGroup.POST("/modems/:iccid/scan", mh.ScanNetworks)
@@ -285,6 +287,18 @@ func main() {
 				adminGroup.GET("/admin/backups/:name", backupHandler.Get)
 				adminGroup.POST("/admin/restore", backupHandler.Restore)
 				adminGroup.GET("/audit", auditHandler.List)
+
+				// Nhân sự giữ SIM: danh bạ, giao / đổi người giữ / thu hồi, bàn giao, lịch sử.
+				adminGroup.GET("/staff", staffHandler.List)
+				adminGroup.POST("/staff", staffHandler.Create)
+				adminGroup.PUT("/staff/:id", staffHandler.Update)
+				adminGroup.DELETE("/staff/:id", staffHandler.Delete)
+				adminGroup.POST("/staff/:id/leave", staffHandler.Leave)
+				adminGroup.POST("/staff/:id/return", staffHandler.Return)
+				adminGroup.POST("/staff/:id/transfer", staffHandler.Transfer)
+				adminGroup.POST("/modems/:iccid/holder", staffHandler.Assign)
+				adminGroup.DELETE("/modems/:iccid/holder", staffHandler.Release)
+				adminGroup.GET("/sim-assignments", staffHandler.History)
 
 				adminGroup.GET("/users", uh.ListUsers)
 				adminGroup.POST("/users", uh.CreateUser)
@@ -435,7 +449,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.PhoneNumberHistory{}, &model.AuditLog{}, &model.Setting{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.PhoneNumberHistory{}, &model.AuditLog{}, &model.Setting{}, &model.Staff{}, &model.SimAssignment{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {
