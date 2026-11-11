@@ -1,6 +1,9 @@
 server:
   port: ":8080"
   mode: "debug" # debug, release
+  # Proxy được tin để đọc IP khách từ X-Forwarded-For. Mặc định chỉ loopback (cloudflared chạy cùng máy).
+  # Chạy sau reverse proxy ở máy khác thì thêm IP/CIDR của proxy đó.
+  trusted_proxies: ["127.0.0.1", "::1"]
 
 database:
   driver: "sqlite" # sqlite, mysql
@@ -82,3 +85,26 @@ backup:
   dir: "backups"           # thư mục tương đối gốc app
   hour: 3                  # giờ chạy hằng ngày (0-23), không chạy lúc khởi động
   keep: 14                 # giữ N bản smsie-*.db mới nhất; pre-restore-*.db không bị xoá
+
+auth:
+  # Khoá ký JWT phiên đăng nhập. Để trống: máy chủ tự sinh 32 byte ngẫu nhiên lần chạy đầu và lưu trong DB.
+  # Tự đặt (≥ 32 ký tự, vd. `openssl rand -base64 32`) khi chạy nhiều bản cùng lúc; cũng đặt được qua AUTH_JWT_SECRET.
+  jwt_secret: ""
+  login_max_attempts: 10     # số lần đăng nhập sai liên tiếp cho mỗi IP trước khi bị chặn tạm (0 = tắt)
+  login_window_minutes: 15   # trong bao nhiêu phút
+
+jione:
+  enabled: false                 # đăng nhập bằng tài khoản Jione (OIDC) — xem docs/jione-login.md
+  issuer: "https://id.jione.vn"
+  client_id: ""                  # client_id đã đăng ký ở Jione, vd. "smsie"
+  redirect_origin: ""            # origin công khai, vd. "https://smsie.jione.vn"; trống = suy từ request
+  admin_emails: []               # email Jione (đã xác minh) được vào với quyền admin
+  auto_create: false             # true: tài khoản Jione lạ được tạo user thường, chưa có quyền SIM nào
+
+staff_sync:
+  enabled: false                 # đồng bộ nhân sự từ KeHub qua JiOne Connect (chức năng kehub.nhan_su)
+  url: "https://connect.jione.vn/v1/kehub.nhan_su"
+  client_id: ""                  # mã app của smsie ở JiOne; trống = dùng jione.client_id
+  don_vi: ""                     # SLUG đơn vị ở JiOne mà smsie này phục vụ (không phải uuid, không phải schema cty_… của KeHub)
+  key: ""                        # khoá máy của app (dạng jak_…) — ĐỪNG ghi ở đây, đặt biến môi trường STAFF_SYNC_KEY
+  hour: -1                       # 0–23: tự đồng bộ mỗi ngày lúc giờ đó; -1 = chỉ khi bấm nút

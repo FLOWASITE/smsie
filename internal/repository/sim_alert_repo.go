@@ -14,8 +14,14 @@ type SimAlertRepository struct {
 func NewSimAlertRepository(db *gorm.DB) *SimAlertRepository { return &SimAlertRepository{db: db} }
 
 func (r *SimAlertRepository) AlertedWithin(iccid, kind string, d time.Duration) (bool, error) {
+	return r.AlertedSince(iccid, kind, time.Now().Add(-d))
+}
+
+// AlertedSince: đã có cảnh báo loại này từ mốc `since` chưa. Nhận mốc thời gian tường minh để bên gọi dùng
+// đồng hồ của chính nó (keepalive tiêm đồng hồ khi test) thay vì lệch với time.Now() ở đây.
+func (r *SimAlertRepository) AlertedSince(iccid, kind string, since time.Time) (bool, error) {
 	var n int64
-	err := r.db.Model(&model.SimAlert{}).Where("iccid = ? AND kind = ? AND sent_at >= ?", iccid, kind, time.Now().Add(-d)).Count(&n).Error
+	err := r.db.Model(&model.SimAlert{}).Where("iccid = ? AND kind = ? AND sent_at >= ?", iccid, kind, since).Count(&n).Error
 	return n > 0, err
 }
 

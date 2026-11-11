@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pccr10001/smsie/internal/model"
+	"github.com/pccr10001/smsie/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -28,6 +29,8 @@ type Row struct {
 	SlotEvents    int64  `json:"slot_events"`
 	KeepaliveSent int64  `json:"keepalive_sent"`
 	Alerts        int64  `json:"alerts"`
+	// Holder — nhân sự giữ SIM lúc cuối tháng (tháng hiện tại: người đang giữ). Rỗng = chưa giao cho ai.
+	Holder string `json:"holder"`
 }
 
 type Report struct {
@@ -141,8 +144,13 @@ func Monthly(db *gorm.DB, month time.Time, allowed []string) (Report, error) {
 		return r, err
 	}
 
+	holders, err := repository.NewStaffRepository(db).HolderNamesAt(end)
+	if err != nil {
+		return r, err
+	}
+
 	for _, m := range modems {
-		row := Row{ICCID: m.ICCID, PhoneNumber: m.PhoneNumber, SlotNumber: m.SlotNumber}
+		row := Row{ICCID: m.ICCID, PhoneNumber: m.PhoneNumber, SlotNumber: m.SlotNumber, Holder: holders[m.ICCID]}
 		if s, ok := slotOf[m.ICCID]; ok {
 			row.SlotNumber = s
 		}
@@ -202,7 +210,7 @@ func Monthly(db *gorm.DB, month time.Time, allowed []string) (Report, error) {
 	return r, nil
 }
 
-var csvHeader = []string{"ICCID", "Số thuê bao", "Khe", "SMS nhận", "SMS gửi", "SMS lỗi", "Cuộc gọi", "Giây gọi", "Số dư đầu tháng", "Số dư cuối tháng", "Chênh lệch", "Sự kiện khe", "Nuôi SIM đã gửi", "Cảnh báo"}
+var csvHeader = []string{"ICCID", "Số thuê bao", "Khe", "SMS nhận", "SMS gửi", "SMS lỗi", "Cuộc gọi", "Giây gọi", "Số dư đầu tháng", "Số dư cuối tháng", "Chênh lệch", "Sự kiện khe", "Nuôi SIM đã gửi", "Cảnh báo", "Nhân sự"}
 
 // WriteCSV: BOM + tiêu đề Việt, dấu phẩy, dòng cuối là Tổng.
 func WriteCSV(w io.Writer, r Report) error {
@@ -222,7 +230,7 @@ func WriteCSV(w io.Writer, r Report) error {
 	}
 	line := func(name, phone, slot string, x Row) []string {
 		return []string{name, phone, slot, fmt.Sprint(x.SMSReceived), fmt.Sprint(x.SMSSent), fmt.Sprint(x.SMSFailed), fmt.Sprint(x.Calls), fmt.Sprint(x.CallSeconds),
-			opt(x.BalanceStart), opt(x.BalanceEnd), opt(x.BalanceDelta), fmt.Sprint(x.SlotEvents), fmt.Sprint(x.KeepaliveSent), fmt.Sprint(x.Alerts)}
+			opt(x.BalanceStart), opt(x.BalanceEnd), opt(x.BalanceDelta), fmt.Sprint(x.SlotEvents), fmt.Sprint(x.KeepaliveSent), fmt.Sprint(x.Alerts), x.Holder}
 	}
 	for _, x := range r.Rows {
 		slot := ""

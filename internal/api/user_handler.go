@@ -4,19 +4,52 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pccr10001/smsie/internal/audit"
 	"github.com/pccr10001/smsie/internal/auth"
+	"github.com/pccr10001/smsie/internal/config"
+	"github.com/pccr10001/smsie/internal/jione"
 	"github.com/pccr10001/smsie/internal/model"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+)
+
+const (
+	minPasswordLen = 8
+	// noPasswordHash — không phải hash bcrypt hợp lệ nên không mật khẩu nào khớp: tài khoản chỉ vào được qua Jione.
+	noPasswordHash = "!"
 )
 
 type UserHandler struct {
 	db *gorm.DB
+	// limiter đếm lần đăng nhập sai; maxAttempts áp cho mỗi IP, gấp đôi cho mỗi tên đăng nhập.
+	limiter     *attemptLimiter
+	maxAttempts int
 }
 
 func NewUserHandler(db *gorm.DB) *UserHandler {
-	return &UserHandler{db: db}
+	cfg := config.AppConfig.Auth
+	max := cfg.LoginMaxAttempts
+	if max == 0 {
+		max = 10
+	}
+	window := time.Duration(cfg.LoginWindowMin) * time.Minute
+	return &UserHandler{db: db, limiter: newAttemptLimiter(window), maxAttempts: max}
+}
+
+var (
+	dummyHashOnce sync.Once
+	dummyHash     []byte
+)
+
+// burnPasswordCheck tiêu đúng một lượt bcrypt khi tên đăng nhập không tồn tại, để thời gian trả lời
+// không tiết lộ tài khoản nào có thật.
+func burnPasswordCheck(password string) {
+	dummyHashOnce.Do(func() { dummyHash, _ = bcrypt.GenerateFromPassword([]byte("smsie-dummy"), 14) })
+	_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 }
 
 type permissionInput struct {
@@ -42,30 +75,40 @@ func (h *UserHandler) Login(c *gin.Context) {
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&creds); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
+	}
+	username := strings.TrimSpace(creds.Username)
+	ip := c.ClientIP()
+	ipKey, userKey := "ip:"+ip, "user:"+strings.ToLower(username)
+
+	// Chặn TRƯỚC khi chạy bcrypt: vừa chống dò mật khẩu, vừa không để ai đốt CPU bằng cách bắn /login.
+	for _, k := range []struct {
+		key string
+		max int
+	}{{ipKey, h.maxAttempts}, {userKey, h.maxAttempts * 2}} {
+		if blocked, wait := h.limiter.blocked(k.key, k.max); blocked {
+			c.Header("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many failed login attempts", "retry_after_seconds": int(wait.Seconds()) + 1})
+			return
+		}
+	}
+
+	fail := func() {
+		h.limiter.fail(ipKey)
+		h.limiter.fail(userKey)
+		_ = audit.Record(h.db, audit.Entry{Username: truncateForAudit(username), Action: "auth.login", Status: http.StatusUnauthorized, IP: ip})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 	}
 
 	var user model.User
-	// Find user by username first
-	if err := h.db.Where("username = ?", creds.Username).First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+	if err := h.db.Where("username = ?", username).First(&user).Error; err != nil {
+		burnPasswordCheck(creds.Password)
+		fail()
 		return
 	}
-
-	// Be backward compatible optionally?
-	// If current hash is SHA256 (64 hex chars), specific handling?
-	// User didn't ask for migration, just improvements. Assuming we can break or mixed mode.
-	// But "admin123" SHA256 is 64 chars. Bcrypt starts with $.
-	// Let's just assume we check bcrypt. If we really wanted to support migration we would check length.
-	// Since user considers SHA256 "too casual", let's strictly use bcrypt.
-	// If the hash in DB is SHA256, verification will fail, which is expected for security upgrade unless we migrate.
-	// We will assume "Invalid credentials" if it fails.
-
 	if !checkPasswordHash(creds.Password, user.PasswordHash) {
-		// Fallback check for SHA256 if we want to support legacy during transition?
-		// For now, let's keep it strict.
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		fail()
 		return
 	}
 
@@ -74,11 +117,21 @@ func (h *UserHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	h.limiter.reset(ipKey)
+	h.limiter.reset(userKey)
+	_ = audit.Record(h.db, audit.Entry{UserID: &user.ID, Username: user.Username, Action: "auth.login", Status: http.StatusOK, IP: ip})
 
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
 		"user":  user,
 	})
+}
+
+func truncateForAudit(s string) string {
+	if len(s) > 64 {
+		return s[:64]
+	}
+	return s
 }
 
 func (h *UserHandler) ListUsers(c *gin.Context) {
@@ -94,6 +147,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	var req struct {
 		Username      string            `json:"username"`
 		Password      string            `json:"password"`
+		Email         string            `json:"email"`
 		Role          string            `json:"role"`
 		AllowedModems string            `json:"allowed_modems"`
 		Permissions   []permissionInput `json:"permissions"`
@@ -103,20 +157,70 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	hash, err := hashPassword(req.Password)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+	username := strings.TrimSpace(req.Username)
+	email := jione.NormalizeEmail(req.Email)
+	if email != "" && !looksLikeEmail(email) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email is not valid"})
+		return
+	}
+	if username == "" {
+		username = email // người chỉ đăng nhập qua Jione: lấy email làm tên
+	}
+	if username == "" || len(username) > 128 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "username is required (or give an email)"})
+		return
+	}
+	role := strings.TrimSpace(req.Role)
+	if role == "" {
+		role = "user"
+	}
+	if role != "user" && role != "admin" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "role must be user or admin"})
+		return
+	}
+
+	// Mật khẩu chỉ được bỏ trống khi có email (tài khoản đăng nhập qua Jione). Trước đây mật khẩu rỗng vẫn được
+	// băm và lưu, tức ai cũng đăng nhập được bằng mật khẩu rỗng.
+	hash := noPasswordHash
+	switch {
+	case req.Password == "" && email == "":
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password is required unless an email is given for Jione login"})
+		return
+	case req.Password != "":
+		if len(req.Password) < minPasswordLen {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 8 characters"})
+			return
+		}
+		var err error
+		if hash, err = hashPassword(req.Password); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+			return
+		}
+	}
+
+	var clash int64
+	q := h.db.Model(&model.User{}).Where("username = ?", username)
+	if email != "" {
+		q = q.Or("email = ?", email)
+	}
+	if err := q.Count(&clash).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check existing users"})
+		return
+	}
+	if clash > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "username or email already exists"})
 		return
 	}
 
 	user := model.User{
-		Username:      req.Username,
+		Username:      username,
 		PasswordHash:  hash,
-		Role:          req.Role,
+		Email:         email,
+		Role:          role,
 		AllowedModems: req.AllowedModems,
 	}
 	if err := h.db.Create(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
 	}
 
@@ -126,6 +230,11 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, user)
+}
+
+func looksLikeEmail(s string) bool {
+	at := strings.LastIndex(s, "@")
+	return at > 0 && at < len(s)-3 && strings.Contains(s[at+1:], ".") && !strings.ContainsAny(s, " \t\r\n<>") && len(s) <= 254
 }
 
 func (h *UserHandler) UpdateUserPermissions(c *gin.Context) {
@@ -157,7 +266,7 @@ func (h *UserHandler) UpdateUserPermissions(c *gin.Context) {
 	}
 
 	user.AllowedModems = req.AllowedModems
-	if err := h.db.Save(&user).Error; err != nil {
+	if err := h.db.Model(&user).Update("allowed_modems", req.AllowedModems).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -236,11 +345,29 @@ func (h *UserHandler) replaceUserPermissions(userID uint, allowedModems string, 
 	return nil
 }
 
+// DeleteUser xoá hẳn người dùng cùng quyền SIM và API key của họ. Xoá hẳn (không xoá mềm) để tên đăng nhập,
+// email và liên kết Jione được giải phóng — tạo lại người cùng tên không còn vướng unique index.
 func (h *UserHandler) DeleteUser(c *gin.Context) {
-	idStr := c.Param("id")
-	id, _ := strconv.Atoi(idStr)
-	if err := h.db.Delete(&model.User{}, id).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+	if actor, ok := getActor(c); ok && actor.User != nil && actor.User.ID == uint(id) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete your own account"})
+		return
+	}
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", id).Delete(&model.UserModemPermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&model.APIKey{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Delete(&model.User{}, id).Error
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete user"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
@@ -269,6 +396,10 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Incorrect old password"})
 		return
 	}
+	if len(req.NewPassword) < minPasswordLen {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "new password must be at least 8 characters"})
+		return
+	}
 
 	// Update
 	hash, err := hashPassword(req.NewPassword)
@@ -277,11 +408,18 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
+	// Đổi mật khẩu thu hồi mọi phiên cũ (tăng token_version); phiên đang dùng nhận token mới ngay trong phản hồi.
 	user.PasswordHash = hash
-	if err := h.db.Save(user).Error; err != nil {
+	user.TokenVersion++
+	if err := h.db.Model(user).Select("PasswordHash", "TokenVersion").Updates(user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
 		return
 	}
+	token, err := auth.GenerateToken(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "Password updated"})
+	c.JSON(http.StatusOK, gin.H{"status": "Password updated", "token": token})
 }

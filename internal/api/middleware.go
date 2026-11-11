@@ -29,7 +29,7 @@ func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 
 		tokenRaw := normalizeAuthBearer(authHeader)
 		if tokenRaw == "" {
-			logger.Log.Warnf("Auth Middleware: Invalid header format: %s", authHeader)
+			logger.Log.Warn("Auth Middleware: Invalid Authorization header format")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header format must be Bearer {token}"})
 			return
 		}
@@ -68,21 +68,25 @@ func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 		claims, err := auth.ValidateToken(tokenRaw)
 		if err != nil {
 			logger.Log.Warnf("Auth Middleware: Token validation failed: %v", err)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token: " + err.Error()})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
 		}
 
-		// Optionally fetch full user from DB if we need up-to-date fields like AllowedModems
 		var user model.User
 		if err := db.First(&user, claims.UserID).Error; err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 			return
 		}
+		// Token cũ hơn phiên bản hiện tại của người dùng = đã bị thu hồi (đổi mật khẩu, Jione báo đăng xuất).
+		if claims.Ver != user.TokenVersion {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Session revoked"})
+			return
+		}
 
-		// Set user in context
+		// Quyền lấy từ DB, không lấy từ token: hạ quyền có hiệu lực ngay, không chờ token hết hạn.
 		c.Set("user", &user)
-		c.Set("userID", claims.UserID)
-		c.Set("role", claims.Role)
+		c.Set("userID", user.ID)
+		c.Set("role", user.Role)
 		c.Set("auth_type", "jwt")
 
 		c.Next()

@@ -24,6 +24,47 @@ type Config struct {
 	Audit AuditConfig `mapstructure:"audit"`
 	// Backup — sao lưu SQLite hằng ngày lúc Hour:00 vào Dir, giữ Keep bản mới nhất.
 	Backup BackupConfig `mapstructure:"backup"`
+	// Auth — khoá ký JWT và giới hạn thử đăng nhập.
+	Auth AuthConfig `mapstructure:"auth"`
+	// Jione — đăng nhập bằng tài khoản Jione (OpenID Connect tại id.jione.vn).
+	Jione JioneConfig `mapstructure:"jione"`
+	// StaffSync — đồng bộ nhân sự từ KeHub qua JiOne Connect (chức năng kehub.nhan_su).
+	StaffSync StaffSyncConfig `mapstructure:"staff_sync"`
+}
+
+// StaffSyncConfig — smsie gọi JiOne Connect bằng khoá máy của chính nó; khoá KeHub nằm ở JiOne.
+type StaffSyncConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	URL     string `mapstructure:"url"`
+	// ClientID — mã app của smsie ở JiOne; trống = dùng jione.client_id.
+	ClientID string `mapstructure:"client_id"`
+	// DonVi — slug đơn vị ở JiOne mà smsie này phục vụ (không phải uuid hay schema KeHub).
+	DonVi string `mapstructure:"don_vi"`
+	// Key — khoá máy của app. Đặt qua biến môi trường STAFF_SYNC_KEY, đừng ghi vào config.yaml.
+	Key string `mapstructure:"key"`
+	// Hour — giờ tự đồng bộ hằng ngày (0–23); -1 = chỉ đồng bộ khi bấm nút.
+	Hour int `mapstructure:"hour"`
+}
+
+// AuthConfig — JWTSecret rỗng thì máy chủ tự sinh và lưu trong DB (bảng settings).
+type AuthConfig struct {
+	JWTSecret        string `mapstructure:"jwt_secret"`
+	LoginMaxAttempts int    `mapstructure:"login_max_attempts"`
+	LoginWindowMin   int    `mapstructure:"login_window_minutes"`
+}
+
+// JioneConfig — Authorization Code + PKCE, client công khai (không client_secret).
+type JioneConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	Issuer   string `mapstructure:"issuer"`
+	ClientID string `mapstructure:"client_id"`
+	// RedirectOrigin — origin công khai của smsie (vd. https://smsie.jione.vn). Rỗng = suy từ request.
+	RedirectOrigin string `mapstructure:"redirect_origin"`
+	// AdminEmails — email Jione (đã xác minh) được vào với quyền admin.
+	AdminEmails []string `mapstructure:"admin_emails"`
+	// AutoCreate — true: tài khoản Jione lạ được tạo user thường, chưa có quyền SIM nào.
+	// false (mặc định): chỉ người đã được admin tạo sẵn theo email mới vào được.
+	AutoCreate bool `mapstructure:"auto_create"`
 }
 
 type BackupConfig struct {
@@ -76,6 +117,8 @@ type LogConfig struct {
 type ServerConfig struct {
 	Port string `mapstructure:"port"`
 	Mode string `mapstructure:"mode"`
+	// TrustedProxies — proxy được tin để đọc IP khách từ X-Forwarded-For (mặc định chỉ loopback, tức cloudflared cùng máy).
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type DatabaseConfig struct {
@@ -163,6 +206,22 @@ func LoadConfig() {
 	viper.SetDefault("backup.dir", "backups")
 	viper.SetDefault("backup.hour", 3)
 	viper.SetDefault("backup.keep", 14)
+	viper.SetDefault("server.trusted_proxies", []string{"127.0.0.1", "::1"})
+	viper.SetDefault("auth.jwt_secret", "")
+	viper.SetDefault("auth.login_max_attempts", 10)
+	viper.SetDefault("auth.login_window_minutes", 15)
+	viper.SetDefault("jione.enabled", false)
+	viper.SetDefault("jione.issuer", "https://id.jione.vn")
+	viper.SetDefault("jione.client_id", "")
+	viper.SetDefault("jione.redirect_origin", "")
+	viper.SetDefault("jione.admin_emails", []string{})
+	viper.SetDefault("jione.auto_create", false)
+	viper.SetDefault("staff_sync.enabled", false)
+	viper.SetDefault("staff_sync.url", "https://connect.jione.vn/v1/kehub.nhan_su")
+	viper.SetDefault("staff_sync.client_id", "")
+	viper.SetDefault("staff_sync.don_vi", "")
+	viper.SetDefault("staff_sync.key", "")
+	viper.SetDefault("staff_sync.hour", -1)
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file not found, using defaults. Error: %v", err)

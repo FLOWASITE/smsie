@@ -16,6 +16,94 @@ components:
       description: Use `Bearer <jwt>` for dashboard sessions or `Bearer smsie_...` for API key access.
 
   schemas:
+    StaffInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 120
+        code:
+          type: string
+          description: Employee code
+        department:
+          type: string
+        phone:
+          type: string
+          description: Personal contact number, not the assigned SIM's number
+        email:
+          type: string
+        note:
+          type: string
+    SimHolding:
+      type: object
+      properties:
+        assignment_id:
+          type: integer
+        iccid:
+          type: string
+        phone_number:
+          type: string
+        slot_number:
+          type: integer
+        staff_id:
+          type: integer
+        staff_name:
+          type: string
+        department:
+          type: string
+        assigned_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+    Staff:
+      allOf:
+        - $ref: "#/components/schemas/StaffInput"
+        - type: object
+          properties:
+            id:
+              type: integer
+            active:
+              type: boolean
+            left_at:
+              type: string
+              format: date-time
+            sims:
+              type: array
+              items:
+                $ref: "#/components/schemas/SimHolding"
+    SimAssignment:
+      type: object
+      properties:
+        id:
+          type: integer
+        iccid:
+          type: string
+        phone_number:
+          type: string
+        staff_id:
+          type: integer
+        staff_name:
+          type: string
+        assigned_at:
+          type: string
+          format: date-time
+        sim_deleted:
+          type: boolean
+          description: True when the SIM itself was deleted; its history is kept and phone_number is the last known number
+        released_at:
+          type: string
+          format: date-time
+          description: Absent while the SIM is still held
+        assigned_by:
+          type: string
+        released_by:
+          type: string
+        note:
+          type: string
+        release_note:
+          type: string
     User:
       type: object
       properties:
@@ -29,6 +117,12 @@ components:
         allowed_modems:
           type: string
           description: Comma separated ICCIDs or "*"
+        email:
+          type: string
+          description: Verified Jione email used to link the account on first Jione sign-in
+        jione_linked:
+          type: boolean
+          description: True once a Jione account has been linked to this user
         created_at:
           type: string
           format: date-time
@@ -667,6 +761,60 @@ paths:
                     $ref: "#/components/schemas/User"
         "401":
           description: Invalid credentials
+        "429":
+          description: Too many failed attempts from this IP or for this username; see the Retry-After header
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  retry_after_seconds:
+                    type: integer
+
+  /auth/config:
+    get:
+      summary: Which sign-in methods are enabled (public)
+      security: []
+      responses:
+        "200":
+          description: Sign-in configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jione:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      login_url:
+                        type: string
+                        description: Browser entry point of the Jione sign-in (GET /oidc/login, outside /api/v1)
+
+  /auth/jione/session:
+    post:
+      summary: Exchange the one-time Jione hand-off cookie for a session token
+      description: >
+        Called by the web UI right after /oidc/callback redirected to /?sso=1. Reads the HttpOnly
+        `smsie_sso` cookie (60 s, single use) and returns the same body as /login.
+      security: []
+      responses:
+        "200":
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          description: No pending Jione sign-in, or it expired
 
   /change_password:
     post:
@@ -684,7 +832,393 @@ paths:
                   type: string
       responses:
         "200":
-          description: Password updated
+          description: Password updated. Every other session of the user is revoked; use the returned token from now on.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  token:
+                    type: string
+        "400":
+          description: New password shorter than 8 characters
+
+  /sim-holders:
+    get:
+      summary: Current holder (staff member) of each SIM the caller may view
+      responses:
+        "200":
+          description: One entry per SIM that is currently assigned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SimHolding"
+
+  /staff:
+    get:
+      summary: List staff with the SIMs each one holds (admin)
+      responses:
+        "200":
+          description: Staff, active first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Staff"
+    post:
+      summary: Add a staff member (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffInput"
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Missing name or a field is too long
+
+  /staff/import:
+    post:
+      summary: Import or sync staff from an Excel/CSV file, e.g. the KeHub staff export (admin)
+      description: >
+        Without `apply` the call is a preview and writes nothing. People are matched by employee code, else
+        by email; the import only adds and updates. Someone the file marks as left is marked as left but keeps
+        their SIMs. Only code, name, department, email, phone and status columns are read; all other columns
+        are discarded.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: .xlsx or .csv, at most 5 MB and 5000 people; needs a "Họ tên" (name) column
+                apply:
+                  type: string
+                  description: Send "1" to write the changes
+      responses:
+        "200":
+          description: Plan (preview) or outcome (applied)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  columns:
+                    type: array
+                    items:
+                      type: string
+                    description: Columns recognised in the file
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                    description: Rows skipped while reading, e.g. "Dòng 7 - không có họ tên"
+                  result:
+                    type: object
+                    properties:
+                      applied:
+                        type: boolean
+                      created:
+                        type: integer
+                      updated:
+                        type: integer
+                      unchanged:
+                        type: integer
+                      left:
+                        type: integer
+                      returned:
+                        type: integer
+                      skipped:
+                        type: integer
+                      left_holding:
+                        type: integer
+                        description: People marked as left who still hold SIMs
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            row:
+                              type: integer
+                            name:
+                              type: string
+                            code:
+                              type: string
+                            action:
+                              type: string
+                              enum: [create, update, unchanged, leave, return, skip]
+                            changes:
+                              type: array
+                              items:
+                                type: string
+                            reason:
+                              type: string
+                            holding:
+                              type: integer
+        "400":
+          description: Missing, unreadable or oversized file, or no name column
+
+  /staff/sync:
+    get:
+      summary: State of the KeHub staff sync through JiOne Connect (admin)
+      responses:
+        "200":
+          description: Never contains the machine key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  configured:
+                    type: boolean
+                    description: client id, unit and machine key are all set
+                  don_vi:
+                    type: string
+                  auto_hour:
+                    type: integer
+                    description: Hour of the daily automatic run; absent when sync is manual only
+                  last:
+                    type: object
+                    description: Last applied run (manual or automatic); absent before the first one
+                    properties:
+                      at:
+                        type: string
+                        format: date-time
+                      auto:
+                        type: boolean
+                      ok:
+                        type: boolean
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      created:
+                        type: integer
+                      updated:
+                        type: integer
+                      left:
+                        type: integer
+                      returned:
+                        type: integer
+    post:
+      summary: Pull staff from KeHub through JiOne Connect (admin)
+      description: >
+        Calls GET <staff_sync.url>?client_id&don_vi with the app machine key, then applies the same rules
+        as /staff/import. Without `apply` the call is a preview. A remote failure changes nothing.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                apply:
+                  type: boolean
+      responses:
+        "200":
+          description: Same body as /staff/import
+        "409":
+          description: Sync is disabled (code sync_disabled) or not fully configured (code sync_not_configured)
+        "502":
+          description: >
+            JiOne Connect or KeHub refused or failed. `code` is the contract error (invalid_client,
+            chuc_nang_chua_cap, don_vi_la, chua_ket_noi, ket_noi_het_han, chua_cau_hinh_kehub, nen_tang_loi…)
+            and `error` says who has to fix it.
+
+  /staff/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      summary: Update a staff profile (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffInput"
+      responses:
+        "200":
+          description: Updated
+        "404":
+          description: Staff not found
+    delete:
+      summary: Delete a staff member who never held a SIM (admin)
+      responses:
+        "200":
+          description: Deleted
+        "409":
+          description: Staff has assignment history (code staff_has_history) — mark them as left instead
+
+  /staff/{id}/leave:
+    post:
+      summary: Mark a staff member as having left (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                release_sims:
+                  type: boolean
+                  description: Also release every SIM they hold. Without it the call is refused while they hold SIMs.
+      responses:
+        "200":
+          description: Marked as left; `released` is the number of SIMs released
+        "409":
+          description: Still holds SIMs (code staff_holds_sims)
+
+  /staff/{id}/return:
+    post:
+      summary: Mark a staff member as active again (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Active again
+
+  /staff/{id}/transfer:
+    post:
+      summary: Hand over every SIM this person holds to another staff member (admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_staff_id]
+              properties:
+                to_staff_id:
+                  type: integer
+                note:
+                  type: string
+      responses:
+        "200":
+          description: Transferred; `moved` is the number of SIMs handed over
+        "409":
+          description: Target staff has left (code staff_left)
+
+  /modems/{iccid}/holder:
+    parameters:
+      - name: iccid
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Assign a SIM to a staff member, or change its holder (admin)
+      description: If the SIM is held by someone else, that assignment is closed and the new one opened in one transaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id]
+              properties:
+                staff_id:
+                  type: integer
+                note:
+                  type: string
+      responses:
+        "200":
+          description: Assignment result; `previous` is set when the holder changed, `changed` is false when the SIM was already held by this person
+        "404":
+          description: SIM or staff not found (codes sim_not_found, staff_not_found)
+        "409":
+          description: Staff has left (code staff_left)
+    delete:
+      summary: Release a SIM so nobody holds it (admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+      responses:
+        "200":
+          description: Released
+        "409":
+          description: SIM is not assigned (code sim_not_assigned)
+
+  /sim-assignments:
+    get:
+      summary: SIM assignment history, newest first (admin)
+      parameters:
+        - name: iccid
+          in: query
+          schema:
+            type: string
+        - name: staff_id
+          in: query
+          schema:
+            type: integer
+        - name: open
+          in: query
+          description: 1 = only assignments still open
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            maximum: 500
+      responses:
+        "200":
+          description: Page of assignments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SimAssignment"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
 
   /modems:
     get:

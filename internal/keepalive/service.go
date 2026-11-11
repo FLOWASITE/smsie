@@ -303,7 +303,7 @@ func (s *Service) render(now time.Time) (string, error) {
 }
 
 func (s *Service) alert(it Item, reason string, window time.Duration) {
-	if done, err := s.alerts.AlertedWithin(it.ICCID, model.SimAlertKeepalive, window); err != nil || done {
+	if done, err := s.alerts.AlertedSince(it.ICCID, model.SimAlertKeepalive, s.now().Add(-window)); err != nil || done {
 		if err != nil {
 			logger.Log.Errorf("keepalive: kiểm alert %s lỗi: %v", it.ICCID, err)
 		}

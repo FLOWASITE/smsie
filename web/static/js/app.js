@@ -223,6 +223,53 @@ window.setSmsieCallMedia = ({ mic, speaker }) => {
     if (typeof speaker === 'boolean' && callPlaybackAudio) callPlaybackAudio.muted = !speaker;
 };
 
+function clearSession() {
+    localStorage.removeItem('sms_username');
+    localStorage.removeItem('sms_token');
+    localStorage.removeItem('sms_role');
+    auth = {};
+}
+
+// Lưu phiên từ phản hồi {token, user} — dùng chung cho đăng nhập mật khẩu và đăng nhập Jione.
+function storeSession(resp) {
+    auth.username = resp.user.username;
+    auth.role = resp.user.role;
+    auth.token = resp.token;
+    localStorage.setItem('sms_username', auth.username);
+    localStorage.setItem('sms_role', auth.role);
+    localStorage.setItem('sms_token', auth.token);
+}
+
+function showLoginError(message) {
+    const box = $('#login-error');
+    if (!message) {
+        box.addClass('d-none').text('');
+        return;
+    }
+    box.text(message).removeClass('d-none');
+}
+
+// Thông báo lỗi đăng nhập Jione chờ hiện khi form đăng nhập được vẽ (đặt trong finishJioneSignIn).
+let pendingLoginErrorKey = '';
+
+// Sau khi Jione chuyển về (/?sso=1 hoặc /?sso_error=mã): gỡ tham số khỏi URL, rồi đổi cookie bàn giao lấy
+// phiên. JWT không bao giờ nằm trên URL.
+function finishJioneSignIn() {
+    const result = window.smsieRouter.parseSSOResult(window.location.search);
+    if (!result.pending && !result.errorKey) return $.Deferred().resolve().promise();
+    history.replaceState(null, '', window.location.pathname + result.search + window.location.hash);
+    if (result.errorKey) {
+        pendingLoginErrorKey = result.errorKey;
+        return $.Deferred().resolve().promise();
+    }
+    const done = $.Deferred();
+    $.ajax({ url: '/api/v1/auth/jione/session', method: 'POST' })
+        .done(function (resp) { storeSession(resp); })
+        .fail(function () { pendingLoginErrorKey = 'sso_err_session'; })
+        .always(function () { done.resolve(); });
+    return done.promise();
+}
+
 $.ajaxSetup({
     beforeSend: function (xhr) {
         if (auth.token) {
@@ -230,12 +277,9 @@ $.ajaxSetup({
         }
     },
     error: function (xhr) {
-        if (xhr.status === 401) {
-            // Token expired or invalid
-            localStorage.removeItem('sms_username');
-            localStorage.removeItem('sms_token');
-            localStorage.removeItem('sms_role');
-            auth = {};
+        // 401 khi đang có phiên = token hết hạn hoặc đã bị thu hồi. Chưa có phiên (form đăng nhập) thì bỏ qua.
+        if (xhr.status === 401 && auth.token) {
+            clearSession();
             checkAuth();
         }
     }
@@ -352,12 +396,20 @@ $(document).ready(function () {
     $('#lang-select').val(currentLang);
 
     // Init Logic with async I18n load
-    loadI18n(currentLang).then(() => {
+    loadI18n(currentLang).then(finishJioneSignIn).then(() => {
         checkAuth();
     });
 
     // Event Listeners
     $('#btn-login').click(doLogin);
+    $('#username, #password').on('keydown', function (e) {
+        if (e.key === 'Enter') doLogin();
+    });
+    $('#btn-logout').click(function () {
+        // Chỉ kết thúc phiên smsie trên trình duyệt này; phiên Jione (nếu có) vẫn còn, như các sản phẩm Jione khác.
+        clearSession();
+        window.location.href = '/';
+    });
     $('#lang-select').change(function () {
         currentLang = $(this).val();
         localStorage.setItem('sms_lang', currentLang);
@@ -454,9 +506,17 @@ function applyI18n(data) {
 }
 
 function checkAuth() {
-    if (!auth.username) {
+    if (!auth.username || !auth.token) {
         $('#login-app').removeClass('d-none');
         $('#dashboard-app').addClass('d-none');
+        if (pendingLoginErrorKey) {
+            showLoginError(window.t(pendingLoginErrorKey));
+            pendingLoginErrorKey = '';
+        }
+        // Nút "Đăng nhập với Jione" chỉ hiện khi máy chủ đã bật và có client_id.
+        $.get('/api/v1/auth/config').done(function (cfg) {
+            $('#jione-login-block').toggleClass('d-none', !(cfg && cfg.jione && cfg.jione.enabled));
+        });
         return;
     }
 
@@ -468,9 +528,9 @@ function checkAuth() {
 
     // Hide Admin Menus if User
     if (auth.role !== 'admin') {
-        $('#nav-users').addClass('d-none');
+        $('#nav-users, #nav-staff').addClass('d-none');
     } else {
-        $('#nav-users').removeClass('d-none');
+        $('#nav-users, #nav-staff').removeClass('d-none');
     }
 
     $('#nav-apikeys').removeClass('d-none');
@@ -484,6 +544,7 @@ function doLogin() {
     const p = $('#password').val();
     if (!u || !p) return;
 
+    showLoginError('');
     $('#btn-login').prop('disabled', true).text(window.t('validating') || 'Validating...');
 
     $.ajax({
@@ -492,19 +553,19 @@ function doLogin() {
         contentType: 'application/json',
         data: JSON.stringify({ username: u, password: p }),
         success: function (resp) {
-            auth.username = resp.user.username;
-            auth.role = resp.user.role;
-            auth.token = resp.token;
-
-            localStorage.setItem('sms_username', auth.username);
-            localStorage.setItem('sms_role', auth.role);
-            localStorage.setItem('sms_token', auth.token); // Not used by backend yet but good practice
-
+            storeSession(resp);
+            $('#password').val('');
+            $('#btn-login').prop('disabled', false).text(window.t('login_btn'));
             checkAuth();
         },
-        error: function () {
-            alert("Login Failed");
-            $('#btn-login').prop('disabled', false).text("Login");
+        error: function (xhr) {
+            if (xhr.status === 429) {
+                const seconds = (xhr.responseJSON && xhr.responseJSON.retry_after_seconds) || 60;
+                showLoginError(window.t('login_locked').replace('{minutes}', Math.ceil(seconds / 60)));
+            } else {
+                showLoginError(window.t('login_failed'));
+            }
+            $('#btn-login').prop('disabled', false).text(window.t('login_btn'));
         }
     });
 }
@@ -692,16 +753,25 @@ function loadUsers() {
         const body = $('#user-list-body');
         body.empty();
         data.forEach(u => {
-            body.append(`
-                <tr>
-                    <td>${u.username}</td>
-                    <td>${u.role}</td>
-                    <td>${u.allowed_modems || '*'}</td>
-                    <td>
-                        <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Del</button>
-                    </td>
-                </tr>
-            `);
+            // Dựng bằng .text(): tên đăng nhập/email là dữ liệu người nhập, không chèn thẳng vào HTML.
+            const row = $('<tr>');
+            row.append($('<td>').text(u.username));
+            const emailCell = $('<td>');
+            if (u.email) {
+                emailCell.append($('<div>').text(u.email));
+                emailCell.append($('<span>')
+                    .addClass(u.jione_linked ? 'badge text-bg-success' : 'badge text-bg-secondary')
+                    .text(window.t(u.jione_linked ? 'user_jione_linked' : 'user_jione_pending')));
+            } else {
+                emailCell.text('—');
+            }
+            row.append(emailCell);
+            row.append($('<td>').text(u.role));
+            row.append($('<td>').text(u.role === 'admin' ? '*' : (u.allowed_modems || '—')));
+            row.append($('<td>').append(
+                $('<button>').addClass('btn btn-sm btn-danger').text('Del').on('click', () => deleteUser(u.id))
+            ));
+            body.append(row);
         });
     });
 }
@@ -713,6 +783,7 @@ window.showAddUser = function () {
 function saveUser() {
     const data = {
         username: $('#u-username').val(),
+        email: $('#u-email').val(),
         password: $('#u-password').val(),
         role: $('#u-role').val(),
         allowed_modems: $('#u-allowed').val()
@@ -725,10 +796,11 @@ function saveUser() {
         data: JSON.stringify(data),
         success: function () {
             $('#userModal').modal('hide');
+            $('#u-username, #u-email, #u-password, #u-allowed').val('');
             loadUsers();
         },
         error: function (err) {
-            alert("Error: " + err.responseText);
+            alert("Error: " + ((err.responseJSON && err.responseJSON.error) || err.responseText));
         }
     });
 }
@@ -738,7 +810,10 @@ window.deleteUser = function (id) {
         $.ajax({
             url: '/api/v1/users/' + id,
             method: 'DELETE',
-            success: loadUsers
+            success: loadUsers,
+            error: function (err) {
+                alert("Error: " + ((err.responseJSON && err.responseJSON.error) || err.responseText));
+            }
         });
     }
 }
@@ -1205,7 +1280,7 @@ function loadModemSettingsIntoModal(iccid) {
         populateModemSettingsForm(modem || {});
     }).fail(function (xhr) {
         const msg = xhr && xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : 'Failed to load modem settings';
-        $('#modem-status').html(`<span class="text-danger">${msg}</span>`);
+        $('#modem-status').html(`<span class="text-danger">${escapeHTML(msg)}</span>`);
     });
 }
 
@@ -1300,7 +1375,7 @@ $(document).on('click', '#btn-call-dial', function () {
         try {
             await ensureCallSignaling(iccid);
         } catch (error) {
-            statusDiv.html(`<span class="text-danger">${error.message || 'WebRTC init failed'}</span>`);
+            statusDiv.html(`<span class="text-danger">${escapeHTML(error.message || 'WebRTC init failed')}</span>`);
             dialBtn.prop('disabled', false);
             hangupBtn.prop('disabled', true);
             return;
@@ -1316,7 +1391,7 @@ $(document).on('click', '#btn-call-dial', function () {
             success: function (resp) {
                 const state = resp && resp.call_state ? resp.call_state.state : 'dialing';
                 const reason = resp && resp.call_state ? resp.call_state.reason : '';
-                statusDiv.html(`<span class="text-success">Call state: ${state}${reason ? ` (${reason})` : ''}</span>`);
+                statusDiv.html(`<span class="text-success">Call state: ${escapeHTML(state)}${reason ? ` (${escapeHTML(reason)})` : ''}</span>`);
                 if (window.smsieCallConsole && window.smsieCallConsole.beginRecording) {
                     window.smsieCallConsole.beginRecording(iccid, number).catch(function (error) {
                         $('#call-recording-status').addClass('is-danger').text(error.message || 'Không khởi tạo được ghi âm.');
@@ -1332,7 +1407,7 @@ $(document).on('click', '#btn-call-dial', function () {
                     msg = xhr.responseText;
                 }
                 closeCallSignaling();
-                statusDiv.html(`<span class="text-danger">${msg}</span>`);
+                statusDiv.html(`<span class="text-danger">${escapeHTML(msg)}</span>`);
                 refreshCallStateUI(iccid);
             },
             complete: function () {
@@ -1368,7 +1443,7 @@ $(document).on('click', '#btn-call-hangup', function () {
         success: function (resp) {
             const state = resp && resp.call_state ? resp.call_state.state : 'idle';
             const reason = resp && resp.call_state ? resp.call_state.reason : '';
-            statusDiv.html(`<span class="text-success">Call state: ${state}${reason ? ` (${reason})` : ''}</span>`);
+            statusDiv.html(`<span class="text-success">Call state: ${escapeHTML(state)}${reason ? ` (${escapeHTML(reason)})` : ''}</span>`);
             if (window.smsieCallConsole && window.smsieCallConsole.finishRecording) {
                 window.smsieCallConsole.finishRecording(false);
             }
@@ -1382,7 +1457,7 @@ $(document).on('click', '#btn-call-hangup', function () {
             } else if (xhr.responseText) {
                 msg = xhr.responseText;
             }
-            statusDiv.html(`<span class="text-danger">${msg}</span>`);
+            statusDiv.html(`<span class="text-danger">${escapeHTML(msg)}</span>`);
             refreshCallStateUI(iccid);
         },
         complete: function () {
@@ -1411,7 +1486,7 @@ $(document).on('click', '.btn-dtmf', function () {
         contentType: 'application/json',
         data: JSON.stringify({ tone: tone }),
         success: function () {
-            statusDiv.html(`<span class="text-muted">DTMF sent: ${tone}</span>`);
+            statusDiv.html(`<span class="text-muted">DTMF sent: ${escapeHTML(tone)}</span>`);
         },
         error: function (xhr) {
             let msg = 'DTMF failed';
@@ -1420,7 +1495,7 @@ $(document).on('click', '.btn-dtmf', function () {
             } else if (xhr.responseText) {
                 msg = xhr.responseText;
             }
-            statusDiv.html(`<span class="text-danger">${msg}</span>`);
+            statusDiv.html(`<span class="text-danger">${escapeHTML(msg)}</span>`);
         }
     });
 });
@@ -1451,7 +1526,7 @@ $(document).on('click', '#btn-reboot-modem', function () {
             } else if (xhr.responseText) {
                 msg = xhr.responseText;
             }
-            statusDiv.html(`<span class="text-danger">${msg}</span>`);
+            statusDiv.html(`<span class="text-danger">${escapeHTML(msg)}</span>`);
         },
         complete: function () {
             btn.prop('disabled', false).text('Reboot Modem (AT+CFUN=1,1)');
@@ -1497,7 +1572,7 @@ $('#btn-send-sms').click(function () {
             } else if (xhr.responseText) {
                 msg = xhr.responseText;
             }
-            statusDiv.html(`<span class="text-danger"><i class="bi bi-x-circle"></i> ${msg}</span>`);
+            statusDiv.html(`<span class="text-danger"><i class="bi bi-x-circle"></i> ${escapeHTML(msg)}</span>`);
         },
         complete: function () {
             btn.prop('disabled', false).html(`<i class="bi bi-send"></i> ${window.t('send_sms')}`);
@@ -1557,7 +1632,7 @@ $('#btn-save-modem').click(function () {
             } else if (xhr.responseText) {
                 msg = xhr.responseText;
             }
-            statusDiv.html(`<span class="text-danger">${msg}</span>`);
+            statusDiv.html(`<span class="text-danger">${escapeHTML(msg)}</span>`);
         }
     });
 });
@@ -1601,29 +1676,29 @@ $('#btn-scan-networks').click(function () {
         url: '/api/v1/modems/' + iccid + '/scan',
         method: 'POST',
         success: function (resp) {
-            let html = "<ul>";
+            // Tên mạng do trạm phát quảng bá — dữ liệu ngoài, dựng bằng .text() chứ không ghép HTML.
+            const list = $('<ul>');
             if (resp.networks && resp.networks.length > 0) {
                 // Expected format: "Name (MCCMNC) [Status]" or raw string
                 resp.networks.forEach(n => {
-                    // Extract MCCMNC for value if possible
-                    // Regex to find (12345)
-                    const match = n.match(/\((\d{5,})\)/);
-                    let val = "";
-                    if (match && match[1]) {
-                        val = result = match[1];
-                    }
-
+                    const match = String(n).match(/\((\d{5,})\)/);
+                    const val = match && match[1] ? match[1] : '';
+                    const item = $('<li>');
                     if (val) {
-                        html += `<li><a href="#" onclick="$('#m-operator').val('${val}'); return false;">${n}</a></li>`;
+                        item.append($('<a>').attr('href', '#').text(n).on('click', function (e) {
+                            e.preventDefault();
+                            $('#m-operator').val(val);
+                        }));
                     } else {
-                        html += `<li>${n}</li>`;
+                        item.text(n);
                     }
+                    list.append(item);
                 });
-                html += "</ul><small class='text-muted'>Click network to select</small>";
+                resDiv.empty().append(list, $('<small>').addClass('text-muted').text('Click network to select'));
             } else {
-                html += "<li>No networks found</li></ul>";
+                list.append($('<li>').text('No networks found'));
+                resDiv.empty().append(list);
             }
-            resDiv.html(html);
         },
         error: function (err) {
             resDiv.text("Error: " + err.responseText);
@@ -1645,14 +1720,19 @@ $('#btn-save-password').click(function () {
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({ old_password: oldPw, new_password: newPw }),
-        success: function () {
-            alert("Password updated");
+        success: function (resp) {
+            // Đổi mật khẩu thu hồi mọi phiên cũ; máy chủ trả token mới cho phiên đang dùng.
+            if (resp && resp.token) {
+                auth.token = resp.token;
+                localStorage.setItem('sms_token', auth.token);
+            }
+            alert(window.t('password_updated'));
             $('#passwordModal').modal('hide');
             $('#pw-old').val('');
             $('#pw-new').val('');
         },
         error: function (err) {
-            alert("Error: " + err.responseText);
+            alert("Error: " + ((err.responseJSON && err.responseJSON.error) || err.responseText));
         }
     });
 });

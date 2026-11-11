@@ -13,10 +13,14 @@
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
       rel="stylesheet"
+      integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+      crossorigin="anonymous"
     />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+      integrity="sha384-tViUnnbYAV00FLIhhi3v/dWt3Jxw4gZQcNoSCxCIFNJVCx7/D55/wXsrNIRANwdD"
+      crossorigin="anonymous"
     />
     <style>
       :root {
@@ -83,6 +87,40 @@
       .login-title {
         font-size: 1.6rem;
         font-weight: 700;
+      }
+
+      .login-divider {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin: 1.1rem 0;
+        color: var(--ink-soft);
+        font-size: 0.85rem;
+      }
+
+      .login-divider::before,
+      .login-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+
+      .btn-jione {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        background: #fff;
+        color: var(--accent-2);
+        border: 1px solid var(--accent-2);
+        font-weight: 600;
+      }
+
+      .btn-jione:hover,
+      .btn-jione:focus-visible {
+        background: var(--accent-2);
+        color: #fff;
       }
 
       .app-grid {
@@ -286,7 +324,7 @@
         }
       }
     </style>
-    <link rel="stylesheet" href="/static/css/operations-console.css?v=20260916-plan" />
+    <link rel="stylesheet" href="/static/css/operations-console.css?v=20261111-import" />
   </head>
   <body>
     <div id="login-app" class="login-wrap d-none">
@@ -298,17 +336,27 @@
         <h1 class="login-title mb-2" data-i18n="login_title">Login</h1>
         <p class="text-secondary mb-4" data-i18n="login_description">Secure modem and call operations portal.</p>
 
+        <div id="login-error" class="alert alert-danger py-2 d-none" role="alert"></div>
+
         <div class="mb-3">
-          <label class="form-label" data-i18n="username">Username</label>
+          <label class="form-label" for="username" data-i18n="username">Username</label>
           <input id="username" type="text" class="form-control" autocomplete="username" />
         </div>
 
         <div class="mb-4">
-          <label class="form-label" data-i18n="password">Password</label>
+          <label class="form-label" for="password" data-i18n="password">Password</label>
           <input id="password" type="password" class="form-control" autocomplete="current-password" />
         </div>
 
         <button id="btn-login" class="btn btn-accent w-100" data-i18n="login_btn">Login</button>
+
+        <div id="jione-login-block" class="d-none">
+          <div class="login-divider"><span data-i18n="login_or">hoặc</span></div>
+          <a id="btn-login-jione" class="btn btn-jione w-100" href="/oidc/login">
+            <i class="bi bi-box-arrow-in-right" aria-hidden="true"></i>
+            <span data-i18n="login_jione">Đăng nhập với Jione</span>
+          </a>
+        </div>
       </div>
     </div>
 
@@ -333,13 +381,15 @@
             <div class="nav-kicker nav-kicker-admin">Quản trị</div>
             <a class="nav-link" href="#/modems" id="nav-modems"><i class="bi bi-usb-symbol"></i> <span>Thiết bị</span></a>
             <a class="nav-link" href="#/apikeys" id="nav-apikeys"><i class="bi bi-key"></i> <span data-i18n="nav_apikeys">API Key</span></a>
+            <a class="nav-link" href="#/staff" id="nav-staff"><i class="bi bi-person-badge"></i> <span>Nhân sự</span></a>
             <a class="nav-link" href="#/users" id="nav-users"><i class="bi bi-people"></i> <span data-i18n="nav_users">Users</span></a>
           </nav>
 
           <div class="mt-auto pt-3 border-top">
-            <div id="current-user" class="small text-secondary mb-2">user</div>
+            <div id="current-user" class="small text-secondary mb-2 text-break">user</div>
+            <button id="btn-logout" class="btn btn-outline-secondary btn-sm w-100 mb-2" data-i18n="logout">Đăng xuất</button>
             <div class="d-flex gap-2 align-items-center">
-              <button class="btn btn-outline-secondary btn-sm" onclick="$('#passwordModal').modal('show')" data-i18n="change_password">Password</button>
+              <button class="btn btn-outline-secondary btn-sm text-nowrap" onclick="$('#passwordModal').modal('show')" data-i18n="change_password">Password</button>
               <select class="form-select form-select-sm" id="lang-select" style="max-width: 92px">
                 <option value="vi">VI</option>
                 <option value="en">EN</option>
@@ -647,7 +697,7 @@
               <div class="ops-panel-head"><h2>Theo SIM trong tháng</h2><div id="report-month-label" class="ops-list-note"></div></div>
               <div class="table-responsive">
                 <table class="table ops-table align-middle mb-0">
-                  <thead><tr><th>Khe</th><th>SIM</th><th>Số thuê bao</th><th>SMS nhận</th><th>SMS gửi</th><th>SMS lỗi</th><th>Cuộc gọi</th><th>Phút gọi</th><th>Số dư đầu</th><th>Số dư cuối</th><th>Chênh lệch</th><th>Đổi khe</th><th>Nuôi SIM</th><th>Cảnh báo</th></tr></thead>
+                  <thead><tr><th>Khe</th><th>SIM</th><th>Số thuê bao</th><th>SMS nhận</th><th>SMS gửi</th><th>SMS lỗi</th><th>Cuộc gọi</th><th>Phút gọi</th><th>Số dư đầu</th><th>Số dư cuối</th><th>Chênh lệch</th><th>Đổi khe</th><th>Nuôi SIM</th><th>Cảnh báo</th><th>Nhân sự</th></tr></thead>
                   <tbody id="ops-report-body"></tbody>
                   <tfoot id="ops-report-foot"></tfoot>
                 </table>
@@ -691,6 +741,18 @@
                     <option value="apikey.delete">Xoá API key</option>
                     <option value="webhook.create">Tạo webhook</option>
                     <option value="webhook.delete">Xoá webhook</option>
+                    <option value="sim.assign">Giao SIM / đổi người giữ</option>
+                    <option value="sim.release">Thu hồi SIM</option>
+                    <option value="sim.transfer">Bàn giao SIM</option>
+                    <option value="staff.sync">Đồng bộ nhân sự từ KeHub</option>
+                    <option value="staff.import">Nhập nhân sự từ file</option>
+                    <option value="staff.create">Thêm nhân sự</option>
+                    <option value="staff.update">Sửa nhân sự</option>
+                    <option value="staff.leave">Nhân sự nghỉ việc</option>
+                    <option value="staff.return">Nhân sự làm lại</option>
+                    <option value="staff.delete">Xoá nhân sự</option>
+                    <option value="auth.login">Đăng nhập</option>
+                    <option value="auth.jione_login">Đăng nhập Jione</option>
                     <option value="auth.password">Đổi mật khẩu</option>
                     <option value="backup.ok">Sao lưu thành công</option>
                     <option value="backup.failed">Sao lưu lỗi</option>
@@ -713,6 +775,96 @@
                 <div class="d-flex gap-1">
                   <button type="button" class="btn btn-sm btn-outline-secondary" id="audit-prev">‹ Trước</button>
                   <button type="button" class="btn btn-sm btn-outline-secondary" id="audit-next">Sau ›</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="view-staff" class="view-section ops-view d-none">
+            <header class="ops-page-head">
+              <div>
+                <div class="eyebrow">Giao nhận SIM</div>
+                <h1>Nhân sự và SIM</h1>
+                <p>Ai đang giữ SIM nào, đổi người giữ, bàn giao khi đổi nhân sự và xem lại lịch sử giao nhận.</p>
+              </div>
+              <div class="ops-head-actions">
+                <button type="button" id="btn-sync-kehub" class="btn btn-outline-dark btn-sm d-none"><i class="bi bi-arrow-repeat"></i> Đồng bộ từ KeHub</button>
+                <button type="button" id="btn-import-staff" class="btn btn-outline-dark btn-sm"><i class="bi bi-file-earmark-arrow-up"></i> Nhập từ Excel</button>
+                <button type="button" id="btn-assign-sim" class="btn btn-outline-dark btn-sm"><i class="bi bi-arrow-left-right"></i> Giao SIM</button>
+                <button type="button" id="btn-add-staff" class="btn btn-accent btn-sm"><i class="bi bi-person-plus"></i> Thêm nhân sự</button>
+              </div>
+            </header>
+            <div id="staff-sync-note" class="ops-list-note mb-3 d-none" aria-live="polite"></div>
+            <div id="staff-kpis" class="ops-kpi-grid" aria-live="polite"></div>
+            <div class="ops-tabs" role="tablist">
+              <button type="button" class="ops-tab is-active" data-staff-tab="people" role="tab">Theo nhân sự</button>
+              <button type="button" class="ops-tab" data-staff-tab="sims" role="tab">Theo SIM</button>
+              <button type="button" class="ops-tab" data-staff-tab="history" role="tab">Lịch sử giao nhận</button>
+            </div>
+
+            <div id="staff-tab-people">
+              <div class="ops-panel">
+                <div class="ops-panel-head">
+                  <h2>Nhân sự</h2>
+                  <button type="button" id="staff-left-toggle" class="btn btn-sm btn-link d-none"></button>
+                </div>
+                <div class="table-responsive">
+                  <table class="table ops-table align-middle mb-0">
+                    <thead><tr><th>Nhân sự</th><th>Phòng ban</th><th>Liên hệ</th><th>SIM đang giữ</th><th>Thao tác</th></tr></thead>
+                    <tbody id="staff-people-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div id="staff-tab-sims" class="d-none">
+              <div class="ops-panel">
+                <div class="ops-panel-head">
+                  <h2>SIM và người giữ <span id="staff-sims-count" class="ops-list-note"></span></h2>
+                  <div class="slot-history-filters">
+                    <div id="staff-sim-filter" class="btn-group btn-group-sm" role="group" aria-label="Lọc theo trạng thái giao">
+                      <button type="button" class="btn btn-outline-secondary active" data-filter="all">Tất cả</button>
+                      <button type="button" class="btn btn-outline-secondary" data-filter="unassigned">Chưa giao</button>
+                      <button type="button" class="btn btn-outline-secondary" data-filter="assigned">Đã giao</button>
+                    </div>
+                    <input type="search" id="staff-sim-search" class="form-control form-control-sm" placeholder="Tìm số, ICCID, tên người giữ" aria-label="Tìm SIM" />
+                  </div>
+                </div>
+                <div class="table-responsive">
+                  <table class="table ops-table align-middle mb-0">
+                    <thead><tr><th>Khe</th><th>SIM</th><th>Người giữ</th><th>Giữ từ</th><th>Thao tác</th></tr></thead>
+                    <tbody id="staff-sims-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div id="staff-tab-history" class="d-none">
+              <div class="ops-panel">
+                <div class="ops-panel-head">
+                  <h2>Lịch sử giao nhận</h2>
+                  <div class="slot-history-filters">
+                    <select id="staff-history-staff" class="form-select form-select-sm" aria-label="Lọc theo nhân sự"></select>
+                    <select id="staff-history-sim" class="form-select form-select-sm" aria-label="Lọc theo SIM"></select>
+                    <div class="form-check form-check-inline m-0 text-nowrap">
+                      <input class="form-check-input" type="checkbox" id="staff-history-open" />
+                      <label class="form-check-label" for="staff-history-open">Chỉ đang giữ</label>
+                    </div>
+                    <button type="button" id="btn-export-assignments" class="btn btn-sm btn-outline-secondary text-nowrap"><i class="bi bi-download"></i> Tải CSV</button>
+                  </div>
+                </div>
+                <div class="table-responsive">
+                  <table class="table ops-table align-middle mb-0">
+                    <thead><tr><th>Giao lúc</th><th>SIM</th><th>Nhân sự</th><th>Trả lúc</th><th>Trạng thái</th><th>Ghi chú</th></tr></thead>
+                    <tbody id="staff-history-body"></tbody>
+                  </table>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-2">
+                  <span class="ops-list-note" id="staff-history-page"></span>
+                  <div class="d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="staff-history-prev">‹ Trước</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="staff-history-next">Sau ›</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -838,6 +990,7 @@
                 <thead>
                   <tr>
                     <th>Username</th>
+                    <th data-i18n="user_email">Email Jione</th>
                     <th>Role</th>
                     <th>Allowed Modems</th>
                     <th>Action</th>
@@ -948,6 +1101,154 @@
       </div>
     </div>
 
+    <div class="modal fade" id="staffFormModal" tabindex="-1" aria-labelledby="staff-form-title">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="staff-form-title">Thêm nhân sự</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="staff-form-id" />
+            <div id="staff-form-error" class="alert alert-danger py-2 d-none" role="alert"></div>
+            <div class="mb-3">
+              <label class="form-label" for="staff-form-name">Họ tên</label>
+              <input type="text" class="form-control" id="staff-form-name" maxlength="120" autocomplete="off" />
+            </div>
+            <div class="row g-3 mb-3">
+              <div class="col-5">
+                <label class="form-label" for="staff-form-code">Mã nhân viên</label>
+                <input type="text" class="form-control" id="staff-form-code" maxlength="40" autocomplete="off" />
+              </div>
+              <div class="col-7">
+                <label class="form-label" for="staff-form-department">Phòng ban</label>
+                <input type="text" class="form-control" id="staff-form-department" maxlength="120" autocomplete="off" />
+              </div>
+            </div>
+            <div class="row g-3 mb-3">
+              <div class="col-5">
+                <label class="form-label" for="staff-form-phone">Số liên hệ</label>
+                <input type="tel" class="form-control" id="staff-form-phone" maxlength="32" autocomplete="off" />
+                <div class="form-text">Số cá nhân, không phải số SIM được giao.</div>
+              </div>
+              <div class="col-7">
+                <label class="form-label" for="staff-form-email">Email</label>
+                <input type="email" class="form-control" id="staff-form-email" maxlength="254" autocomplete="off" />
+              </div>
+            </div>
+            <div class="mb-1">
+              <label class="form-label" for="staff-form-note">Ghi chú</label>
+              <textarea class="form-control" id="staff-form-note" rows="2" maxlength="500"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Huỷ</button>
+            <button type="button" id="staff-form-save" class="btn btn-accent">Lưu</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="import-title">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="import-title">Nhập nhân sự từ Excel</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+          </div>
+          <div class="modal-body">
+            <p id="import-file-intro" class="mb-2">Dùng khi chưa bật đồng bộ tự động: vào <b>KeHub → Nhân sự → Xuất Excel</b>, rồi chọn file đó ở đây. File .csv có cột Họ tên cũng dùng được.</p>
+            <ul class="import-rules">
+              <li>Khớp người theo <b>Mã NV</b>, không có mã thì theo <b>Email</b>. Chỉ thêm và cập nhật — người không có trong danh sách được giữ nguyên.</li>
+              <li>Người được báo <b>Nghỉ việc</b> bị đánh dấu nghỉ nhưng SIM họ đang giữ <b>không tự thu hồi</b>; bạn bàn giao sau.</li>
+              <li>Chỉ nhận mã, họ tên, phòng ban, email, điện thoại và trạng thái. CCCD, số tài khoản và các thông tin khác không được lưu.</li>
+            </ul>
+            <div id="import-error" class="alert alert-danger py-2 d-none" role="alert"></div>
+            <div id="import-file-block">
+              <label class="form-label" for="import-file">File nhân sự (.xlsx hoặc .csv, tối đa 5 MB)</label>
+              <input type="file" class="form-control" id="import-file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" />
+            </div>
+            <div id="import-kehub-block" class="ops-list-note d-none">Danh sách lấy trực tiếp từ KeHub qua JiOne Connect. Xem trước bên dưới rồi bấm Áp dụng.</div>
+            <div id="import-preview" class="d-none mt-3">
+              <div id="import-summary" class="import-summary" aria-live="polite"></div>
+              <div id="import-columns" class="ops-list-note"></div>
+              <div id="import-warnings" class="ops-list-note"></div>
+              <div class="table-responsive mt-2">
+                <table class="table ops-table align-middle mb-0">
+                  <thead><tr><th>Dòng</th><th>Nhân sự</th><th>Việc sẽ làm</th><th>Chi tiết</th></tr></thead>
+                  <tbody id="import-body"></tbody>
+                </table>
+              </div>
+              <div id="import-more" class="ops-list-note mt-1"></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Đóng</button>
+            <button type="button" id="import-apply" class="btn btn-accent" disabled>Áp dụng</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="assignModal" tabindex="-1" aria-labelledby="assign-title">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="assign-title">Giao SIM cho nhân sự</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+          </div>
+          <div class="modal-body">
+            <div id="assign-error" class="alert alert-danger py-2 d-none" role="alert"></div>
+            <div class="mb-3">
+              <label class="form-label" for="assign-sim">SIM</label>
+              <select class="form-select" id="assign-sim"></select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="assign-staff">Người giữ</label>
+              <select class="form-select" id="assign-staff"></select>
+            </div>
+            <div id="assign-hint" class="assign-hint" aria-live="polite"></div>
+            <div class="mb-1">
+              <label class="form-label" for="assign-note">Ghi chú</label>
+              <input type="text" class="form-control" id="assign-note" maxlength="500" placeholder="Ví dụ: SIM nhận OTP ngân hàng, dự án A" autocomplete="off" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Huỷ</button>
+            <button type="button" id="assign-save" class="btn btn-accent">Giao SIM</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="transferModal" tabindex="-1" aria-labelledby="transfer-title">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="transfer-title">Bàn giao toàn bộ SIM</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="transfer-from-id" />
+            <div id="transfer-error" class="alert alert-danger py-2 d-none" role="alert"></div>
+            <p id="transfer-summary" class="mb-3"></p>
+            <div class="mb-3">
+              <label class="form-label" for="transfer-to">Người nhận</label>
+              <select class="form-select" id="transfer-to"></select>
+            </div>
+            <div class="mb-1">
+              <label class="form-label" for="transfer-note">Ghi chú</label>
+              <input type="text" class="form-control" id="transfer-note" maxlength="500" placeholder="Ví dụ: đổi nhân sự phụ trách từ 12/11" autocomplete="off" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Huỷ</button>
+            <button type="button" id="transfer-save" class="btn btn-accent">Bàn giao</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal fade" id="userModal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -961,8 +1262,14 @@
               <input type="text" class="form-control" id="u-username" />
             </div>
             <div class="mb-3">
-              <label class="form-label">Password</label>
-              <input type="password" class="form-control" id="u-password" />
+              <label class="form-label" for="u-email" data-i18n="user_email">Email Jione</label>
+              <input type="email" class="form-control" id="u-email" autocomplete="off" placeholder="ten@congty.vn" />
+              <div class="form-text" data-i18n="user_email_hint">Điền email để người này đăng nhập bằng tài khoản Jione. Có email thì được bỏ trống mật khẩu.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="u-password">Password</label>
+              <input type="password" class="form-control" id="u-password" autocomplete="new-password" />
+              <div class="form-text" data-i18n="user_password_hint">Ít nhất 8 ký tự.</div>
             </div>
             <div class="mb-3">
               <label class="form-label">Role</label>
@@ -1181,12 +1488,14 @@
       </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/js/router.js?v=20260911-calls"></script>
-    <script src="/static/js/app.js?v=20260911-calls-v4"></script>
+    <!-- integrity: trình duyệt từ chối chạy nếu CDN trả về tệp khác bản đã kiểm (trang này giữ token và OTP). -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="/static/js/router.js?v=20261111-staff"></script>
+    <script src="/static/js/app.js?v=20261111-staff"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20260916-plan"></script>
+    <script src="/static/js/operations-console.js?v=20261111-sync"></script>
+    <script src="/static/js/staff-console.js?v=20261111-sync"></script>
   </body>
 </html>
 

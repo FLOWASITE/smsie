@@ -59,6 +59,16 @@ var actions = map[string]string{
 	"POST /api/v1/change_password":             "auth.password",
 	"POST /api/v1/admin/backups/run":            "backup.run",
 	"POST /api/v1/admin/restore":                "restore.staged",
+	"POST /api/v1/staff":                        "staff.create",
+	"POST /api/v1/staff/import":                 "staff.import",
+	"POST /api/v1/staff/sync":                   "staff.sync",
+	"PUT /api/v1/staff/:id":                     "staff.update",
+	"DELETE /api/v1/staff/:id":                  "staff.delete",
+	"POST /api/v1/staff/:id/leave":              "staff.leave",
+	"POST /api/v1/staff/:id/return":             "staff.return",
+	"POST /api/v1/staff/:id/transfer":           "sim.transfer",
+	"POST /api/v1/modems/:iccid/holder":         "sim.assign",
+	"DELETE /api/v1/modems/:iccid/holder":       "sim.release",
 }
 
 func actionFor(method, fullPath string) string {
@@ -133,6 +143,15 @@ func Middleware(db *gorm.DB) gin.HandlerFunc {
 			if s, ok := fields[k].(string); ok && s != "" {
 				e.Target = s
 				break
+			}
+		}
+		// Handler có thể đặt tên đối tượng dễ đọc (vd. tên nhân sự) thay cho id trần trên URL.
+		if v, ok := c.Get("audit_target"); ok {
+			if s, ok := v.(string); ok && s != "" {
+				if r := []rune(s); len(r) > 64 {
+					s = string(r[:64])
+				}
+				e.Target = s
 			}
 		}
 		if e.Target == "" {

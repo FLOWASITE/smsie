@@ -17,7 +17,7 @@ func seed(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.CallRecording{}, &model.BalanceSnapshot{}, &model.SimSlotEvent{}, &model.KeepaliveRun{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.AuditLog{}); err != nil {
+	if err := db.AutoMigrate(&model.Modem{}, &model.ModemBay{}, &model.SMS{}, &model.CallRecording{}, &model.BalanceSnapshot{}, &model.SimSlotEvent{}, &model.KeepaliveRun{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.AuditLog{}, &model.Staff{}, &model.SimAssignment{}); err != nil {
 		t.Fatal(err)
 	}
 	slot3 := 3
@@ -116,5 +116,30 @@ func TestWriteCSV(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	if len(lines) != 4 || !strings.HasPrefix(lines[1], "SIM-A,0911,1,2,1,1,2,75,50000,35000,-15000,1,1,2") || !strings.HasPrefix(lines[2], "SIM-B,0922,3,0,0,0,0,0,,,,") || !strings.HasPrefix(lines[3], "Tổng,") {
 		t.Fatalf("csv:\n%s", s)
+	}
+}
+
+func TestMonthlyHolderIsWhoHeldTheSIMAtMonthEnd(t *testing.T) {
+	db := seed(t)
+	lan, minh := model.Staff{Name: "Lan"}, model.Staff{Name: "Minh"}
+	db.Create(&lan)
+	db.Create(&minh)
+	handover := time.Date(2026, 10, 5, 9, 0, 0, 0, time.Local)
+	db.Create(&model.SimAssignment{ICCID: "SIM-A", StaffID: lan.ID, AssignedAt: time.Date(2026, 9, 2, 9, 0, 0, 0, time.Local), ReleasedAt: &handover})
+	db.Create(&model.SimAssignment{ICCID: "SIM-A", StaffID: minh.ID, AssignedAt: handover})
+
+	sep, _ := Monthly(db, time.Date(2026, 9, 15, 0, 0, 0, 0, time.Local), nil)
+	oct, _ := Monthly(db, time.Date(2026, 10, 15, 0, 0, 0, 0, time.Local), nil)
+	aug, _ := Monthly(db, time.Date(2026, 8, 15, 0, 0, 0, 0, time.Local), nil)
+	if sep.Rows[0].Holder != "Lan" || oct.Rows[0].Holder != "Minh" || aug.Rows[0].Holder != "" || sep.Rows[1].Holder != "" {
+		t.Fatalf("tháng 9 = %q, tháng 10 = %q, tháng 8 = %q, SIM-B = %q", sep.Rows[0].Holder, oct.Rows[0].Holder, aug.Rows[0].Holder, sep.Rows[1].Holder)
+	}
+	var buf strings.Builder
+	if err := WriteCSV(&buf, sep); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\r\n")
+	if !strings.HasSuffix(lines[0], ",Nhân sự") || !strings.HasSuffix(lines[1], ",Lan") {
+		t.Fatalf("csv thiếu cột nhân sự:\n%s", buf.String())
 	}
 }

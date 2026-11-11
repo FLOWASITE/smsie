@@ -7,7 +7,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var Log *zap.SugaredLogger
+// Log mặc định là logger câm để mã chạy trước InitLogger (và trong test) không vấp con trỏ nil.
+var Log = zap.NewNop().Sugar()
 
 func InitLogger(levelStr string) {
 	encoderConfig := zap.NewProductionEncoderConfig()

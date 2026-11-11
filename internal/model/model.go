@@ -12,9 +12,29 @@ type User struct {
 	PasswordHash  string         `gorm:"not null" json:"-"`
 	Role          string         `gorm:"default:'user'" json:"role"` // admin, user
 	AllowedModems string         `json:"allowed_modems"`             // Comma separated ICCIDs, or "*"
+	// Email — email (chữ thường) dùng để gắn tài khoản Jione lần đăng nhập đầu; rỗng = chỉ đăng nhập mật khẩu.
+	Email string `gorm:"column:email;size:254;index" json:"email,omitempty"`
+	// JioneSub — `sub` bất biến của tài khoản Jione (id.jione.vn); nil = chưa gắn.
+	JioneSub    *string `gorm:"column:jione_sub;size:191;uniqueIndex" json:"-"`
+	JioneLinked bool    `gorm:"-" json:"jione_linked"`
+	// TokenVersion — tăng lên là mọi JWT đã phát cho người này hết hiệu lực (đổi mật khẩu, Jione báo đăng xuất).
+	TokenVersion uint `gorm:"column:token_version;not null;default:0" json:"-"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// AfterFind điền cờ hiển thị jione_linked (không lộ sub ra API).
+func (u *User) AfterFind(*gorm.DB) error {
+	u.JioneLinked = u.JioneSub != nil && *u.JioneSub != ""
+	return nil
+}
+
+// Setting — cấu hình do máy chủ tự sinh và phải bền qua các lần khởi động (vd. khoá ký JWT).
+type Setting struct {
+	Name      string    `gorm:"primaryKey;size:64;column:name" json:"name"`
+	Value     string    `gorm:"column:value" json:"-"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type UserModemPermission struct {
@@ -248,3 +268,39 @@ type AuditLog struct {
 	Status   int       `json:"status"`
 	IP       string    `gorm:"size:64" json:"ip,omitempty"`
 }
+
+// Staff — nhân sự được giao SIM. Tách khỏi User (tài khoản đăng nhập): người giữ SIM không nhất thiết có
+// tài khoản smsie, và một tài khoản không nhất thiết giữ SIM nào.
+type Staff struct {
+	ID         uint   `gorm:"primaryKey" json:"id"`
+	Name       string `gorm:"size:120;not null;index" json:"name"`
+	Code       string `gorm:"size:40;index" json:"code,omitempty"` // mã nhân viên (tuỳ chọn)
+	Department string `gorm:"size:120" json:"department,omitempty"`
+	Phone      string `gorm:"size:32" json:"phone,omitempty"` // số liên hệ cá nhân, không phải số SIM được giao
+	Email      string `gorm:"size:254" json:"email,omitempty"`
+	Note       string `gorm:"size:500" json:"note,omitempty"`
+	// LeftAt — thời điểm nghỉ việc; nil = đang làm. Người đã nghỉ không được giao SIM mới nhưng lịch sử vẫn giữ.
+	LeftAt    *time.Time `json:"left_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
+
+func (Staff) TableName() string { return "staff" }
+
+// SimAssignment — một lần giao SIM cho nhân sự. ReleasedAt nil = đang giữ. Mỗi SIM có tối đa một dòng đang mở;
+// đổi người giữ = đóng dòng cũ rồi mở dòng mới, nên bảng này cũng là lịch sử giao nhận.
+type SimAssignment struct {
+	ID          uint       `gorm:"primaryKey" json:"id"`
+	ICCID       string     `gorm:"column:iccid;size:32;not null;index" json:"iccid"`
+	StaffID     uint       `gorm:"not null;index" json:"staff_id"`
+	AssignedAt  time.Time  `gorm:"index" json:"assigned_at"`
+	ReleasedAt  *time.Time `gorm:"index" json:"released_at,omitempty"`
+	AssignedBy  string     `gorm:"size:80" json:"assigned_by,omitempty"`
+	ReleasedBy  string     `gorm:"size:80" json:"released_by,omitempty"`
+	Note        string     `gorm:"size:500" json:"note,omitempty"`         // ghi chú lúc giao
+	ReleaseNote string     `gorm:"size:500" json:"release_note,omitempty"` // lý do thu hồi / chuyển cho ai
+	// SimPhone — số thuê bao của SIM chụp lại lúc giao (và lần cuối lúc SIM bị xoá). Lịch sử giao nhận được giữ
+	// cả khi hồ sơ SIM đã xoá khỏi hệ thống, nên không thể chỉ dựa vào bảng modems để biết đó là số nào.
+	SimPhone string `gorm:"column:sim_phone;size:32" json:"-"`
+}
+
