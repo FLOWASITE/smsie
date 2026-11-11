@@ -299,5 +299,8 @@ type SimAssignment struct {
 	ReleasedBy  string     `gorm:"size:80" json:"released_by,omitempty"`
 	Note        string     `gorm:"size:500" json:"note,omitempty"`         // ghi chú lúc giao
 	ReleaseNote string     `gorm:"size:500" json:"release_note,omitempty"` // lý do thu hồi / chuyển cho ai
+	// SimPhone — số thuê bao của SIM chụp lại lúc giao (và lần cuối lúc SIM bị xoá). Lịch sử giao nhận được giữ
+	// cả khi hồ sơ SIM đã xoá khỏi hệ thống, nên không thể chỉ dựa vào bảng modems để biết đó là số nào.
+	SimPhone string `gorm:"column:sim_phone;size:32" json:"-"`
 }
 

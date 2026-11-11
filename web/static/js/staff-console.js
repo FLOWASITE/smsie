@@ -114,8 +114,42 @@ function describeStaffError(response, fallback) {
     return r.error || fallback || 'Không thực hiện được. Thử lại.';
 }
 
+const IMPORT_ACTIONS = {
+    create: { label: 'Thêm mới', tone: 'ok' },
+    update: { label: 'Cập nhật', tone: 'ok' },
+    unchanged: { label: 'Không đổi', tone: 'off' },
+    leave: { label: 'Nghỉ việc', tone: 'warn' },
+    return: { label: 'Làm lại', tone: 'ok' },
+    skip: { label: 'Bỏ qua', tone: 'off' }
+};
+
+// describeImportItem: một dòng của bản xem trước nhập file → nhãn + chi tiết đọc được.
+function describeImportItem(item) {
+    const it = item || {};
+    const meta = IMPORT_ACTIONS[it.action] || { label: it.action || '—', tone: 'off' };
+    const parts = [];
+    if (it.action === 'skip' && it.reason) parts.push(it.reason);
+    if ((it.changes || []).length) parts.push(it.changes.join(' · '));
+    // Nghỉ việc mà còn giữ SIM: nhập file KHÔNG tự thu hồi — nói rõ việc phải làm tiếp.
+    if (it.action === 'leave' && it.holding > 0) parts.push(`Còn giữ ${it.holding} SIM — cần bàn giao sau khi nhập`);
+    return { label: meta.label, tone: meta.tone, detail: parts.join(' · '), attention: it.action === 'leave' && it.holding > 0 };
+}
+
+// summarizeImport: một câu tóm tắt kết quả (xem trước: "sẽ…", đã áp dụng: "đã…").
+function summarizeImport(result) {
+    const r = result || {};
+    const parts = [
+        [r.created, 'thêm mới'], [r.updated, 'cập nhật'], [r.left, 'đánh dấu nghỉ việc'], [r.returned, 'làm lại'],
+        [r.unchanged, 'không đổi'], [r.skipped, 'bỏ qua']
+    ].filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`);
+    const todo = (r.created || 0) + (r.updated || 0) + (r.left || 0) + (r.returned || 0);
+    if (!parts.length) return { text: 'File không có nhân sự nào.', todo: 0 };
+    const head = r.applied ? 'Đã nhập' : (todo ? 'Sẽ nhập' : 'Không có gì thay đổi');
+    return { text: `${head}: ${parts.join(' · ')}.`, todo };
+}
+
 if (typeof module !== 'undefined') {
-    module.exports = { simLabel, buildSimRows, filterSimRows, summarizeStaff, holdDuration, describeAssignment, assignmentCsv, describeStaffError };
+    module.exports = { simLabel, buildSimRows, filterSimRows, summarizeStaff, holdDuration, describeAssignment, assignmentCsv, describeStaffError, describeImportItem, summarizeImport };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -143,9 +177,12 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
         if (tab === 'history') loadHistory();
     }
 
+    let loadSeq = 0;
     function load() {
+        const seq = ++loadSeq;
         return $.when($.get('/api/v1/staff'), $.get('/api/v1/sim-holders'), $.get('/api/v1/modems'), $.get('/api/v1/bays'))
             .done(function (staffRes, holderRes, modemRes, bayRes) {
+                if (seq !== loadSeq) return;
                 state.staff = staffRes[0] || [];
                 state.holders = holderRes[0] || [];
                 opsState.modems = modemRes[0] || [];
@@ -297,12 +334,18 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
         return params;
     }
 
+    // Mỗi lượt tải mang một số thứ tự; phản hồi của lượt cũ về muộn (đổi bộ lọc liên tiếp) bị bỏ, nếu không
+    // danh sách chưa lọc có thể đè lên danh sách vừa lọc.
+    let historySeq = 0;
     function loadHistory() {
+        const seq = ++historySeq;
         return $.get('/api/v1/sim-assignments', historyParams(state.historyPage, HISTORY_PAGE)).done(function (res) {
+            if (seq !== historySeq) return;
             state.history = res.data || [];
             state.historyTotal = res.total || 0;
             renderHistory();
         }).fail(function () {
+            if (seq !== historySeq) return;
             state.history = [];
             state.historyTotal = 0;
             renderHistory();
@@ -322,6 +365,8 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
             const sim = $('<td>');
             sim.append(el('div', 'mono', simLabel({ iccid: r.iccid, phone_number: r.phone_number, slot_number: slots[r.iccid] })));
             sim.append(el('div', 'ops-list-note mono', r.iccid));
+            // Hồ sơ SIM đã bị xoá khỏi hệ thống: lịch sử vẫn giữ, chỉ đánh dấu để khỏi tìm SIM này ở tab Theo SIM.
+            if (r.sim_deleted) sim.append(el('span', 'pill off', 'SIM đã xoá'));
             row.append(sim);
             row.append($('<td>').append(el('div', 'staff-name', r.staff_name || '(đã xoá)')));
             row.append($('<td>').text(d.open ? '—' : opsDateTime(r.released_at)).attr('title', r.released_by ? `Người thu hồi: ${r.released_by}` : ''));
@@ -454,6 +499,87 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
             .always(() => button.prop('disabled', false));
     }
 
+    // ----- Nhập / đồng bộ từ file Excel-CSV (vd. xuất từ KeHub) -----
+    let importFile = null;
+
+    function openImport() {
+        importFile = null;
+        $('#import-file').val('');
+        $('#import-error').addClass('d-none').text('');
+        $('#import-preview').addClass('d-none');
+        $('#import-apply').prop('disabled', true).text('Áp dụng');
+        $('#importModal').modal('show');
+    }
+
+    function sendImport(apply) {
+        const form = new FormData();
+        form.append('file', importFile);
+        if (apply) form.append('apply', '1');
+        return $.ajax({ url: '/api/v1/staff/import', method: 'POST', data: form, processData: false, contentType: false });
+    }
+
+    function renderImport(res) {
+        const sum = summarizeImport(res.result);
+        $('#import-summary').text(sum.text);
+        $('#import-columns').text((res.columns || []).length ? `Cột đọc được: ${res.columns.join(', ')}. Các cột khác trong file bị bỏ qua, không lưu.` : '');
+        const warn = $('#import-warnings').empty();
+        (res.warnings || []).slice(0, 5).forEach(w => warn.append(el('div', '', w)));
+        if ((res.warnings || []).length > 5) warn.append(el('div', '', `… và ${res.warnings.length - 5} dòng khác`));
+        const body = $('#import-body').empty();
+        // Việc cần làm lên trước, "không đổi" xuống cuối; chỉ vẽ 300 dòng đầu để file lớn không treo trang.
+        const order = { leave: 0, create: 1, update: 2, return: 3, skip: 4, unchanged: 5 };
+        const items = (res.result.items || []).slice().sort((a, b) => (order[a.action] ?? 9) - (order[b.action] ?? 9) || a.row - b.row);
+        items.slice(0, 300).forEach(item => {
+            const d = describeImportItem(item);
+            const row = $('<tr>').toggleClass('import-attention', d.attention);
+            row.append($('<td>').addClass('mono').text(item.row));
+            const who = $('<td>');
+            who.append(el('div', 'staff-name', item.name));
+            if (item.code) who.append(el('div', 'ops-list-note mono', item.code));
+            row.append(who);
+            row.append($('<td>').append(el('span', `pill ${d.tone}`, d.label)));
+            row.append($('<td>').text(d.detail || '—'));
+            body.append(row);
+        });
+        $('#import-more').text(items.length > 300 ? `Đang hiện 300/${items.length} dòng.` : '');
+        $('#import-preview').removeClass('d-none');
+        return sum;
+    }
+
+    function previewImport() {
+        importFile = $('#import-file')[0].files[0] || null;
+        $('#import-error').addClass('d-none').text('');
+        $('#import-preview').addClass('d-none');
+        $('#import-apply').prop('disabled', true).text('Áp dụng');
+        if (!importFile) return;
+        if (importFile.size > 5 * 1024 * 1024) {
+            $('#import-error').removeClass('d-none').text('File quá lớn (tối đa 5 MB).');
+            return;
+        }
+        $('#import-summary').text('Đang đọc file…');
+        sendImport(false)
+            .done(function (res) {
+                const sum = renderImport(res);
+                $('#import-apply').prop('disabled', sum.todo === 0).text(sum.todo ? `Áp dụng ${sum.todo} thay đổi` : 'Không có gì để áp dụng');
+            })
+            .fail(xhr => $('#import-error').removeClass('d-none').text(errText(xhr, 'Không đọc được file.')));
+    }
+
+    function applyImport() {
+        if (!importFile) return;
+        const button = $('#import-apply').prop('disabled', true);
+        sendImport(true)
+            .done(function (res) {
+                renderImport(res);
+                button.text('Đã áp dụng');
+                refresh();
+            })
+            .fail(function (xhr) {
+                $('#import-error').removeClass('d-none').text(errText(xhr, 'Không nhập được.'));
+                button.prop('disabled', false);
+            });
+    }
+
     // ----- Nghỉ việc / làm lại / xoá -----
     function markLeft(staff) {
         const holding = (staff.sims || []).length;
@@ -480,6 +606,9 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
     $(document).ready(function () {
         $('[data-staff-tab]').on('click', function () { showTab($(this).data('staff-tab')); });
         $('#btn-add-staff').on('click', () => openStaffForm(null));
+        $('#btn-import-staff').on('click', openImport);
+        $('#import-file').on('change', previewImport);
+        $('#import-apply').on('click', applyImport);
         $('#btn-assign-sim').on('click', () => openAssign({}));
         $('#staff-form-save').on('click', saveStaffForm);
         $('#assign-save').on('click', saveAssign);

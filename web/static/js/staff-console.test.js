@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { simLabel, buildSimRows, filterSimRows, summarizeStaff, holdDuration, describeAssignment, assignmentCsv, describeStaffError } = require('./staff-console.js');
+const { simLabel, buildSimRows, filterSimRows, summarizeStaff, holdDuration, describeAssignment, assignmentCsv, describeStaffError, describeImportItem, summarizeImport } = require('./staff-console.js');
 
 test('simLabel: khe + số, thiếu thì đuôi ICCID', () => {
     assert.equal(simLabel({ slot_number: 3, phone_number: '0900000001', iccid: '8984' }), 'Khe 3 · 0900000001');
@@ -80,4 +80,23 @@ test('describeStaffError: mã lỗi → câu tiếng Việt chỉ rõ việc c�
     assert.equal(describeStaffError({ error: 'name is required' }), 'name is required');
     assert.equal(describeStaffError(undefined, 'Không lưu được.'), 'Không lưu được.');
     assert.equal(describeStaffError({ code: 'ma_la' }), 'Không thực hiện được. Thử lại.');
+});
+
+test('describeImportItem: nhãn theo việc, nghỉ việc còn giữ SIM phải nhắc bàn giao', () => {
+    assert.deepEqual(describeImportItem({ action: 'create', name: 'An' }), { label: 'Thêm mới', tone: 'ok', detail: '', attention: false });
+    assert.deepEqual(describeImportItem({ action: 'update', changes: ['Phòng ban: Kho → Kế toán', 'Email: a@x.vn'] }),
+        { label: 'Cập nhật', tone: 'ok', detail: 'Phòng ban: Kho → Kế toán · Email: a@x.vn', attention: false });
+    assert.deepEqual(describeImportItem({ action: 'leave', holding: 2, changes: ['Họ tên: Lan → Nguyễn Thị Lan'] }),
+        { label: 'Nghỉ việc', tone: 'warn', detail: 'Họ tên: Lan → Nguyễn Thị Lan · Còn giữ 2 SIM — cần bàn giao sau khi nhập', attention: true });
+    assert.equal(describeImportItem({ action: 'leave', holding: 0 }).attention, false);
+    assert.deepEqual(describeImportItem({ action: 'skip', reason: 'Trùng với dòng 5' }), { label: 'Bỏ qua', tone: 'off', detail: 'Trùng với dòng 5', attention: false });
+    assert.equal(describeImportItem({ action: 'la' }).label, 'la');
+});
+
+test('summarizeImport: xem trước nói "Sẽ nhập", áp dụng xong nói "Đã nhập", không có gì thì nói rõ', () => {
+    assert.deepEqual(summarizeImport({ applied: false, created: 2, updated: 1, left: 1, unchanged: 5, skipped: 1 }),
+        { text: 'Sẽ nhập: 2 thêm mới · 1 cập nhật · 1 đánh dấu nghỉ việc · 5 không đổi · 1 bỏ qua.', todo: 4 });
+    assert.deepEqual(summarizeImport({ applied: true, created: 2, returned: 1 }), { text: 'Đã nhập: 2 thêm mới · 1 làm lại.', todo: 3 });
+    assert.deepEqual(summarizeImport({ applied: false, unchanged: 7 }), { text: 'Không có gì thay đổi: 7 không đổi.', todo: 0 });
+    assert.deepEqual(summarizeImport({}), { text: 'File không có nhân sự nào.', todo: 0 });
 });

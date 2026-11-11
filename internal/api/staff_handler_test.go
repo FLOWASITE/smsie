@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -290,5 +293,167 @@ func TestHoldersAreFilteredByModemPermission(t *testing.T) {
 	}
 	if len(mine) != 1 || mine[0].ICCID != "SIM-A" || mine[0].StaffName != "Lan" || mine[0].SlotNumber == nil || *mine[0].SlotNumber != 5 {
 		t.Fatalf("user chỉ được xem SIM-A lại thấy: %+v", mine)
+	}
+}
+
+func TestDeletingSIMKeepsAssignmentHistory(t *testing.T) {
+	e := newStaffEnv(t)
+	if err := e.db.AutoMigrate(&model.SMS{}, &model.Webhook{}); err != nil {
+		t.Fatal(err)
+	}
+	mh := NewModemHandler(e.db, nil, nil)
+	e.r.DELETE("/api/v1/modems/:iccid", AuthMiddleware(e.db), AdminOnly(), mh.DeleteModem)
+
+	lan := e.addStaff("Lan")
+	call(e.r, http.MethodPost, "/api/v1/modems/SIM-A/holder", e.admin, gin.H{"staff_id": lan, "note": "OTP ngân hàng"})
+	e.db.Create(&model.SMS{ICCID: "SIM-A", Phone: "123", Content: "x", Type: "received"})
+
+	if w := call(e.r, http.MethodDelete, "/api/v1/modems/SIM-A", e.admin, nil); w.Code != http.StatusOK {
+		t.Fatalf("xoá SIM = %d %s", w.Code, w.Body.String())
+	}
+	var modems, sms int64
+	e.db.Model(&model.Modem{}).Where("iccid = ?", "SIM-A").Count(&modems)
+	e.db.Model(&model.SMS{}).Where("iccid = ?", "SIM-A").Count(&sms)
+	if modems != 0 || sms != 0 {
+		t.Fatalf("SIM và tin nhắn phải bị xoá: modems=%d sms=%d", modems, sms)
+	}
+
+	var hist struct {
+		Data  []repository.AssignmentRow `json:"data"`
+		Total int64                      `json:"total"`
+	}
+	_ = json.Unmarshal(call(e.r, http.MethodGet, "/api/v1/sim-assignments?iccid=SIM-A", e.admin, nil).Body.Bytes(), &hist)
+	if hist.Total != 1 {
+		t.Fatalf("xoá SIM phải GIỮ lịch sử giao nhận, còn %d dòng", hist.Total)
+	}
+	row := hist.Data[0]
+	if row.StaffName != "Lan" || !row.SimDeleted || row.PhoneNumber != "0900000001" || row.ReleasedAt == nil ||
+		row.ReleaseNote != repository.SimDeletedNote || row.ReleasedBy != "sep" || row.Note != "OTP ngân hàng" {
+		t.Fatalf("dòng lịch sử sau khi xoá SIM = %+v", row)
+	}
+	var list []repository.StaffWithSIMs
+	_ = json.Unmarshal(call(e.r, http.MethodGet, "/api/v1/staff", e.admin, nil).Body.Bytes(), &list)
+	if len(list) != 1 || len(list[0].SIMs) != 0 {
+		t.Fatalf("Lan không còn đứng tên SIM đã xoá: %+v", list)
+	}
+}
+
+func (e *staffEnv) upload(token, filename string, content []byte, apply bool) *httptest.ResponseRecorder {
+	e.t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if content != nil {
+		part, err := mw.CreateFormFile("file", filename)
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		_, _ = part.Write(content)
+	}
+	if apply {
+		_ = mw.WriteField("apply", "1")
+	}
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/staff/import", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	e.r.ServeHTTP(w, req)
+	return w
+}
+
+func TestImportStaffFromKeHubExport(t *testing.T) {
+	e := newStaffEnv(t)
+	h := NewStaffHandler(e.db)
+	e.r.POST("/api/v1/staff/import", AuthMiddleware(e.db), audit.Middleware(e.db), AdminOnly(), h.Import)
+	lan := e.addStaff("Lan")
+	e.db.Model(&model.Staff{}).Where("id = ?", lan).Update("code", "NV012")
+	call(e.r, http.MethodPost, "/api/v1/modems/SIM-A/holder", e.admin, gin.H{"staff_id": lan})
+
+	// Đúng dạng file KeHub xuất (rút gọn), có cột nhạy cảm.
+	csv := []byte("\xef\xbb\xbfMã NV,Họ tên,Phòng ban,Email,Trạng thái,Số CCCD,STK ngân hàng\r\n" +
+		"NV012,Nguyễn Thị Lan,Kế toán,lan@cty.vn,Nghỉ việc,079123456789,0011223344\r\n" +
+		"NV027,Trần Văn Minh,CSKH,minh@cty.vn,Chính thức,079000000001,9988776655\r\n" +
+		",,,,,,\r\n" +
+		"NV031,,Kho,,Thử việc,,\r\n")
+
+	if w := e.upload(e.viewer, "nv.csv", csv, false); w.Code != http.StatusForbidden {
+		t.Fatalf("user thường nhập file = %d", w.Code)
+	}
+	if w := e.upload(e.admin, "", nil, false); w.Code != http.StatusBadRequest {
+		t.Fatalf("thiếu file = %d", w.Code)
+	}
+	if w := e.upload(e.admin, "anh.png", []byte("\x89PNG\r\n\x1a\n\x00\x00"), false); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Không đọc được file") {
+		t.Fatalf("file không phải bảng tính = %d %s", w.Code, w.Body.String())
+	}
+
+	type reply struct {
+		Result   repository.ImportResult `json:"result"`
+		Columns  []string                `json:"columns"`
+		Warnings []string                `json:"warnings"`
+	}
+	// Xem trước: không ghi.
+	w := e.upload(e.admin, "nhan-vien.csv", csv, false)
+	var preview reply
+	_ = json.Unmarshal(w.Body.Bytes(), &preview)
+	if w.Code != http.StatusOK || preview.Result.Applied || preview.Result.Created != 1 || preview.Result.Left != 1 || preview.Result.LeftHolding != 1 {
+		t.Fatalf("xem trước = %d %s", w.Code, w.Body.String())
+	}
+	if strings.Join(preview.Columns, ",") != "Mã NV,Họ tên,Phòng ban,Email,Trạng thái" || len(preview.Warnings) != 1 || preview.Warnings[0] != "Dòng 5: không có họ tên" {
+		t.Fatalf("cột = %v, cảnh báo = %v", preview.Columns, preview.Warnings)
+	}
+	for _, secret := range []string{"079123456789", "0011223344", "9988776655"} {
+		if strings.Contains(w.Body.String(), secret) {
+			t.Fatalf("phản hồi lộ dữ liệu nhạy cảm của file: %s", secret)
+		}
+	}
+	var n int64
+	e.db.Model(&model.Staff{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("xem trước mà đã ghi: %d nhân sự", n)
+	}
+
+	// Áp dụng.
+	w = e.upload(e.admin, "nhan-vien.csv", csv, true)
+	var applied reply
+	_ = json.Unmarshal(w.Body.Bytes(), &applied)
+	if w.Code != http.StatusOK || !applied.Result.Applied || applied.Result.Created != 1 || applied.Result.Left != 1 {
+		t.Fatalf("áp dụng = %d %s", w.Code, w.Body.String())
+	}
+	var list []repository.StaffWithSIMs
+	_ = json.Unmarshal(call(e.r, http.MethodGet, "/api/v1/staff", e.admin, nil).Body.Bytes(), &list)
+	byName := map[string]repository.StaffWithSIMs{}
+	for _, s := range list {
+		byName[s.Name] = s
+	}
+	lanNow, minh := byName["Nguyễn Thị Lan"], byName["Trần Văn Minh"]
+	if len(list) != 2 || lanNow.Active || len(lanNow.SIMs) != 1 || lanNow.Department != "Kế toán" || lanNow.Email != "lan@cty.vn" {
+		t.Fatalf("Lan sau khi nhập (nghỉ nhưng vẫn đứng tên SIM để bàn giao) = %+v", lanNow)
+	}
+	if !minh.Active || minh.Code != "NV027" || minh.Department != "CSKH" {
+		t.Fatalf("Minh = %+v", minh)
+	}
+
+	// Nhật ký ghi lượt nhập, KHÔNG chép nội dung file.
+	var logs []model.AuditLog
+	for i := 0; i < 50; i++ {
+		e.db.Where("action = ?", "staff.import").Order("id").Find(&logs)
+		if len(logs) >= 5 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	found := false
+	for _, l := range logs {
+		if strings.Contains(l.Detail, "079123456789") || strings.Contains(l.Detail, "Nguyễn") {
+			t.Fatalf("nhật ký chép nội dung file: %q", l.Detail)
+		}
+		if l.Status == 200 && l.Target == "thêm 1, sửa 0, nghỉ 1, làm lại 0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("nhật ký thiếu dòng tóm tắt lượt nhập: %+v", logs)
 	}
 }

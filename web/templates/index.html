@@ -324,7 +324,7 @@
         }
       }
     </style>
-    <link rel="stylesheet" href="/static/css/operations-console.css?v=20261111-staff" />
+    <link rel="stylesheet" href="/static/css/operations-console.css?v=20261111-import" />
   </head>
   <body>
     <div id="login-app" class="login-wrap d-none">
@@ -744,6 +744,7 @@
                     <option value="sim.assign">Giao SIM / đổi người giữ</option>
                     <option value="sim.release">Thu hồi SIM</option>
                     <option value="sim.transfer">Bàn giao SIM</option>
+                    <option value="staff.import">Nhập nhân sự từ file</option>
                     <option value="staff.create">Thêm nhân sự</option>
                     <option value="staff.update">Sửa nhân sự</option>
                     <option value="staff.leave">Nhân sự nghỉ việc</option>
@@ -786,6 +787,7 @@
                 <p>Ai đang giữ SIM nào, đổi người giữ, bàn giao khi đổi nhân sự và xem lại lịch sử giao nhận.</p>
               </div>
               <div class="ops-head-actions">
+                <button type="button" id="btn-import-staff" class="btn btn-outline-dark btn-sm"><i class="bi bi-file-earmark-arrow-up"></i> Nhập từ Excel</button>
                 <button type="button" id="btn-assign-sim" class="btn btn-outline-dark btn-sm"><i class="bi bi-arrow-left-right"></i> Giao SIM</button>
                 <button type="button" id="btn-add-staff" class="btn btn-accent btn-sm"><i class="bi bi-person-plus"></i> Thêm nhân sự</button>
               </div>
@@ -1144,6 +1146,44 @@
       </div>
     </div>
 
+    <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="import-title">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="import-title">Nhập nhân sự từ Excel</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-2">Dùng để đồng bộ nhân sự từ KeHub: vào <b>KeHub → Nhân sự → Xuất Excel</b>, rồi chọn file đó ở đây. File .csv có cột Họ tên cũng dùng được.</p>
+            <ul class="import-rules">
+              <li>Khớp người theo <b>Mã NV</b>, không có mã thì theo <b>Email</b>. Chỉ thêm và cập nhật — người không có trong file được giữ nguyên.</li>
+              <li>Người file báo <b>Nghỉ việc</b> được đánh dấu nghỉ nhưng SIM họ đang giữ <b>không tự thu hồi</b>; bạn bàn giao sau.</li>
+              <li>Chỉ đọc mã, họ tên, phòng ban, email, điện thoại và trạng thái. CCCD, số tài khoản và các cột khác bị bỏ qua, không lưu.</li>
+            </ul>
+            <div id="import-error" class="alert alert-danger py-2 d-none" role="alert"></div>
+            <label class="form-label" for="import-file">File nhân sự (.xlsx hoặc .csv, tối đa 5 MB)</label>
+            <input type="file" class="form-control" id="import-file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" />
+            <div id="import-preview" class="d-none mt-3">
+              <div id="import-summary" class="import-summary" aria-live="polite"></div>
+              <div id="import-columns" class="ops-list-note"></div>
+              <div id="import-warnings" class="ops-list-note"></div>
+              <div class="table-responsive mt-2">
+                <table class="table ops-table align-middle mb-0">
+                  <thead><tr><th>Dòng</th><th>Nhân sự</th><th>Việc sẽ làm</th><th>Chi tiết</th></tr></thead>
+                  <tbody id="import-body"></tbody>
+                </table>
+              </div>
+              <div id="import-more" class="ops-list-note mt-1"></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Đóng</button>
+            <button type="button" id="import-apply" class="btn btn-accent" disabled>Áp dụng</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal fade" id="assignModal" tabindex="-1" aria-labelledby="assign-title">
       <div class="modal-dialog">
         <div class="modal-content">
@@ -1448,8 +1488,8 @@
     <script src="/static/js/router.js?v=20261111-staff"></script>
     <script src="/static/js/app.js?v=20261111-staff"></script>
     <script src="/static/js/call-console.js?v=20260911-calls-v3"></script>
-    <script src="/static/js/operations-console.js?v=20261111-staff"></script>
-    <script src="/static/js/staff-console.js?v=20261111-staff"></script>
+    <script src="/static/js/operations-console.js?v=20261111-import"></script>
+    <script src="/static/js/staff-console.js?v=20261111-import"></script>
   </body>
 </html>
 

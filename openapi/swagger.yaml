@@ -89,6 +89,9 @@ components:
         assigned_at:
           type: string
           format: date-time
+        sim_deleted:
+          type: boolean
+          description: True when the SIM itself was deleted; its history is kept and phone_number is the last known number
         released_at:
           type: string
           format: date-time
@@ -880,6 +883,92 @@ paths:
           description: Created
         "400":
           description: Missing name or a field is too long
+
+  /staff/import:
+    post:
+      summary: Import or sync staff from an Excel/CSV file, e.g. the KeHub staff export (admin)
+      description: >
+        Without `apply` the call is a preview and writes nothing. People are matched by employee code, else
+        by email; the import only adds and updates. Someone the file marks as left is marked as left but keeps
+        their SIMs. Only code, name, department, email, phone and status columns are read; all other columns
+        are discarded.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: .xlsx or .csv, at most 5 MB and 5000 people; needs a "Họ tên" (name) column
+                apply:
+                  type: string
+                  description: Send "1" to write the changes
+      responses:
+        "200":
+          description: Plan (preview) or outcome (applied)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  columns:
+                    type: array
+                    items:
+                      type: string
+                    description: Columns recognised in the file
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                    description: Rows skipped while reading, e.g. "Dòng 7 - không có họ tên"
+                  result:
+                    type: object
+                    properties:
+                      applied:
+                        type: boolean
+                      created:
+                        type: integer
+                      updated:
+                        type: integer
+                      unchanged:
+                        type: integer
+                      left:
+                        type: integer
+                      returned:
+                        type: integer
+                      skipped:
+                        type: integer
+                      left_holding:
+                        type: integer
+                        description: People marked as left who still hold SIMs
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            row:
+                              type: integer
+                            name:
+                              type: string
+                            code:
+                              type: string
+                            action:
+                              type: string
+                              enum: [create, update, unchanged, leave, return, skip]
+                            changes:
+                              type: array
+                              items:
+                                type: string
+                            reason:
+                              type: string
+                            holding:
+                              type: integer
+        "400":
+          description: Missing, unreadable or oversized file, or no name column
 
   /staff/{id}:
     parameters:

@@ -52,11 +52,12 @@ type StaffWithSIMs struct {
 	SIMs   []Holding `json:"sims"`
 }
 
-// AssignmentRow — một dòng lịch sử giao nhận.
+// AssignmentRow — một dòng lịch sử giao nhận. SimDeleted = hồ sơ SIM đã bị xoá khỏi hệ thống (lịch sử vẫn giữ).
 type AssignmentRow struct {
 	model.SimAssignment
 	StaffName   string `json:"staff_name"`
 	PhoneNumber string `json:"phone_number,omitempty"`
+	SimDeleted  bool   `json:"sim_deleted"`
 }
 
 type AssignmentFilter struct {
@@ -151,6 +152,44 @@ func openAssignment(tx *gorm.DB, iccid string) (*model.SimAssignment, error) {
 	return &rows[0], nil
 }
 
+// simPhone trả số thuê bao hiện tại của SIM và SIM có tồn tại không.
+func simPhone(tx *gorm.DB, iccid string) (string, bool, error) {
+	var rows []model.Modem
+	if err := tx.Select("iccid", "phone_number").Where("iccid = ?", iccid).Limit(1).Find(&rows).Error; err != nil {
+		return "", false, err
+	}
+	if len(rows) == 0 {
+		return "", false, nil
+	}
+	return rows[0].PhoneNumber, true, nil
+}
+
+// SimDeletedNote — ghi chú thu hồi tự động khi hồ sơ SIM bị xoá.
+const SimDeletedNote = "SIM bị xoá khỏi hệ thống"
+
+// KeepHistoryForDeletedSIM chạy TRONG giao dịch xoá hồ sơ SIM: lịch sử giao nhận KHÔNG bị xoá theo. Lần giao
+// đang mở được đóng lại (không ai còn giữ một SIM không tồn tại) và mọi dòng của SIM chụp lại số thuê bao cuối
+// cùng, để sau này lịch sử vẫn đọc được "số nào, ai giữ, từ khi nào tới khi nào" dù bảng modems không còn dòng đó.
+// Trả số lần giao đang mở vừa được đóng.
+//
+// Không lấy assignMu: hàm này chạy khi giao dịch xoá đã giữ khoá ghi của DB, còn Assign lấy assignMu rồi mới mở
+// giao dịch — lấy thêm ở đây là đảo thứ tự khoá. Assign kiểm "SIM còn tồn tại" trong giao dịch của nó nên hai
+// bên vẫn tuần tự qua DB.
+func KeepHistoryForDeletedSIM(tx *gorm.DB, iccid, by string, now time.Time) (int64, error) {
+	phone, _, err := simPhone(tx, iccid)
+	if err != nil {
+		return 0, err
+	}
+	if phone != "" {
+		if err := tx.Model(&model.SimAssignment{}).Where("iccid = ?", iccid).Update("sim_phone", phone).Error; err != nil {
+			return 0, err
+		}
+	}
+	res := tx.Model(&model.SimAssignment{}).Where("iccid = ? AND released_at IS NULL", iccid).
+		Updates(map[string]interface{}{"released_at": now, "released_by": by, "release_note": SimDeletedNote})
+	return res.RowsAffected, res.Error
+}
+
 func closeAssignment(tx *gorm.DB, id uint, by, note string, now time.Time) error {
 	return tx.Model(&model.SimAssignment{}).Where("id = ? AND released_at IS NULL", id).
 		Updates(map[string]interface{}{"released_at": now, "released_by": by, "release_note": note}).Error
@@ -192,11 +231,11 @@ func (r *StaffRepository) Assign(iccid string, staffID uint, by, note string, no
 			return err
 		}
 		res.Staff = *staff
-		var n int64
-		if err := tx.Model(&model.Modem{}).Where("iccid = ?", iccid).Count(&n).Error; err != nil {
+		phone, found, err := simPhone(tx, iccid)
+		if err != nil {
 			return err
 		}
-		if n == 0 {
+		if !found {
 			return ErrSIMNotFound
 		}
 		current, err := openAssignment(tx, iccid)
@@ -213,7 +252,7 @@ func (r *StaffRepository) Assign(iccid string, staffID uint, by, note string, no
 			}
 			res.Previous = current
 		}
-		res.Assignment = model.SimAssignment{ICCID: iccid, StaffID: staffID, AssignedAt: now, AssignedBy: by, Note: note}
+		res.Assignment = model.SimAssignment{ICCID: iccid, StaffID: staffID, AssignedAt: now, AssignedBy: by, Note: note, SimPhone: phone}
 		res.Changed = true
 		return tx.Create(&res.Assignment).Error
 	})
@@ -270,7 +309,14 @@ func (r *StaffRepository) Transfer(from, to uint, by, note string, now time.Time
 			if err := closeAssignment(tx, a.ID, by, "Chuyển cho "+target.Name, now); err != nil {
 				return err
 			}
-			next := model.SimAssignment{ICCID: a.ICCID, StaffID: to, AssignedAt: now, AssignedBy: by, Note: note}
+			phone, _, err := simPhone(tx, a.ICCID)
+			if err != nil {
+				return err
+			}
+			if phone == "" {
+				phone = a.SimPhone
+			}
+			next := model.SimAssignment{ICCID: a.ICCID, StaffID: to, AssignedAt: now, AssignedBy: by, Note: note, SimPhone: phone}
 			if next.Note == "" {
 				next.Note = "Nhận bàn giao từ " + src.Name
 			}
@@ -389,7 +435,9 @@ func (r *StaffRepository) History(f AssignmentFilter) ([]AssignmentRow, int64, e
 		return nil, 0, err
 	}
 	rows := []AssignmentRow{}
-	err := q.Select("a.*, s.name AS staff_name, m.phone_number").
+	// SIM đã xoá: không còn dòng modems → lấy số chụp lại trên chính dòng giao nhận.
+	err := q.Select("a.*, s.name AS staff_name, COALESCE(NULLIF(m.phone_number, ''), a.sim_phone) AS phone_number, " +
+		"CASE WHEN m.iccid IS NULL THEN 1 ELSE 0 END AS sim_deleted").
 		Order("a.assigned_at DESC, a.id DESC").
 		Offset((f.Page - 1) * f.Size).Limit(f.Size).
 		Scan(&rows).Error

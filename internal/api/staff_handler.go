@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pccr10001/smsie/internal/model"
 	"github.com/pccr10001/smsie/internal/repository"
+	"github.com/pccr10001/smsie/internal/staffimport"
 	"gorm.io/gorm"
 )
 
@@ -23,6 +26,7 @@ import (
 //	POST   /api/v1/staff/:id/leave         (admin) đánh dấu nghỉ việc {release_sims}
 //	POST   /api/v1/staff/:id/return        (admin) làm lại
 //	POST   /api/v1/staff/:id/transfer      (admin) bàn giao mọi SIM sang người khác {to_staff_id, note}
+//	POST   /api/v1/staff/import            (admin) nhập / đồng bộ từ file Excel-CSV (vd. xuất từ KeHub); apply=1 mới ghi
 //	POST   /api/v1/modems/:iccid/holder    (admin) giao SIM / đổi người giữ {staff_id, note}
 //	DELETE /api/v1/modems/:iccid/holder    (admin) thu hồi SIM {note}
 //	GET    /api/v1/sim-assignments         (admin) lịch sử giao nhận ?iccid=&staff_id=&open=1&page=&page_size=
@@ -353,4 +357,65 @@ func (h *StaffHandler) History(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": rows, "total": total, "page": f.Page, "page_size": f.Size})
+}
+
+// Import — POST /staff/import (multipart `file`, tuỳ chọn `apply=1`). Không có apply thì chỉ XEM TRƯỚC: trả về
+// việc sẽ làm với từng dòng, không ghi gì. Có apply thì ghi tất cả trong một giao dịch.
+//
+// Đây là đường đồng bộ nhân sự từ KeHub: KeHub → Nhân sự → Xuất Excel, rồi chọn file đó ở đây. Chỉ mã, họ tên,
+// phòng ban, email, điện thoại và trạng thái nghỉ việc được đọc; các cột khác của file (CCCD, số tài khoản…)
+// không được lưu, và thân request không vào nhật ký (middleware chỉ chép thân JSON).
+func (h *StaffHandler) Import(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, staffimport.MaxFileBytes+(64<<10))
+	file, _, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Chọn một file .xlsx hoặc .csv (tối đa 5 MB).", "code": "file_required"})
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, staffimport.MaxFileBytes+1))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Không đọc được file.", "code": "file_unreadable"})
+		return
+	}
+	rows, err := staffimport.ReadTable(data)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": importErrorText(err), "code": "file_unreadable"})
+		return
+	}
+	parsed, err := staffimport.Parse(rows, h.now())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": importErrorText(err), "code": "file_unreadable"})
+		return
+	}
+
+	people := make([]repository.ImportPerson, 0, len(parsed.People))
+	for _, p := range parsed.People {
+		people = append(people, repository.ImportPerson{Row: p.Row, Code: p.Code, Name: p.Name, Department: p.Department, Email: p.Email, Phone: p.Phone, Left: p.Left})
+	}
+	apply := c.PostForm("apply") == "1"
+	result, err := h.repo.Import(people, parsed.HasPhone, apply, h.now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Không nhập được danh sách nhân sự."})
+		return
+	}
+	if apply {
+		c.Set("audit_target", fmt.Sprintf("thêm %d, sửa %d, nghỉ %d, làm lại %d", result.Created, result.Updated, result.Left, result.Returned))
+	} else {
+		c.Set("audit_target", fmt.Sprintf("xem trước %d dòng", len(result.Items)))
+	}
+	c.JSON(http.StatusOK, gin.H{"result": result, "columns": parsed.Columns, "warnings": parsed.Skipped})
+}
+
+func importErrorText(err error) string {
+	switch {
+	case errors.Is(err, staffimport.ErrTooLarge):
+		return "File quá lớn (tối đa 5 MB, 5.000 nhân sự)."
+	case errors.Is(err, staffimport.ErrEmpty):
+		return "File không có dòng nhân sự nào."
+	case errors.Is(err, staffimport.ErrUnsupported):
+		return "Không đọc được file: " + strings.TrimPrefix(err.Error(), staffimport.ErrUnsupported.Error()+": ")
+	default:
+		return "Không đọc được file: " + err.Error()
+	}
 }

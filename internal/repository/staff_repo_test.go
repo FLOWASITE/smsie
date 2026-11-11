@@ -244,3 +244,59 @@ func TestConcurrentAssignLeavesOneHolder(t *testing.T) {
 		t.Fatalf("giao đồng thời để lại %d người giữ cùng một SIM", openCount(db, "SIM-B"))
 	}
 }
+
+func TestDeletedSIMKeepsItsHistory(t *testing.T) {
+	r, db := newStaffRepo(t)
+	lan, minh := addStaff(t, r, "Lan"), addStaff(t, r, "Minh")
+	_, _ = r.Assign("SIM-A", lan, "admin", "OTP", t0)
+	_, _ = r.Assign("SIM-A", minh, "admin", "", t0.Add(24*time.Hour))
+	// Số thuê bao đổi sau khi giao: lúc xoá phải chụp số MỚI NHẤT cho mọi dòng.
+	db.Model(&model.Modem{}).Where("iccid = ?", "SIM-A").Update("phone_number", "0911111111")
+
+	deletedAt := t0.Add(72 * time.Hour)
+	err := db.Transaction(func(tx *gorm.DB) error {
+		closed, err := KeepHistoryForDeletedSIM(tx, "SIM-A", "sep", deletedAt)
+		if err != nil || closed != 1 {
+			t.Fatalf("đóng %d lần giao, err = %v", closed, err)
+		}
+		return tx.Where("iccid = ?", "SIM-A").Delete(&model.Modem{}).Error
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, total, err := r.History(AssignmentFilter{ICCID: "SIM-A"})
+	if err != nil || total != 2 {
+		t.Fatalf("xoá SIM làm mất lịch sử: %d dòng, err = %v", total, err)
+	}
+	last := rows[0]
+	if last.StaffName != "Minh" || last.ReleasedAt == nil || !last.ReleasedAt.Equal(deletedAt) || last.ReleaseNote != SimDeletedNote || last.ReleasedBy != "sep" {
+		t.Fatalf("lần giao đang mở phải được đóng lúc xoá: %+v", last)
+	}
+	for _, row := range rows {
+		if !row.SimDeleted || row.PhoneNumber != "0911111111" {
+			t.Fatalf("dòng lịch sử của SIM đã xoá phải còn số thuê bao và cờ đã xoá: %+v", row)
+		}
+	}
+	if rows[1].StaffName != "Lan" || rows[1].ReleaseNote != "Chuyển cho Minh" {
+		t.Fatalf("dòng cũ bị ghi đè: %+v", rows[1])
+	}
+	// Không còn ai giữ SIM đã xoá; SIM khác không bị đụng.
+	if held, _ := r.Holdings(); len(held) != 0 {
+		t.Fatalf("còn người giữ SIM đã xoá: %+v", held)
+	}
+	other, _, _ := r.History(AssignmentFilter{StaffID: lan})
+	if len(other) != 1 || !other[0].SimDeleted {
+		t.Fatalf("lịch sử theo nhân sự = %+v", other)
+	}
+	// SIM còn sống thì cờ là false và số lấy từ hồ sơ SIM.
+	_, _ = r.Assign("SIM-B", lan, "admin", "", deletedAt)
+	live, _, _ := r.History(AssignmentFilter{ICCID: "SIM-B"})
+	if len(live) != 1 || live[0].SimDeleted || live[0].PhoneNumber != "0900000002" {
+		t.Fatalf("SIM còn sống = %+v", live)
+	}
+	// Giao lại SIM đã xoá thì bị từ chối.
+	if _, err := r.Assign("SIM-A", lan, "admin", "", deletedAt); !errors.Is(err, ErrSIMNotFound) {
+		t.Fatalf("giao SIM đã xoá: %v", err)
+	}
+}

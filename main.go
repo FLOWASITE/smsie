@@ -291,6 +291,7 @@ func main() {
 				// Nhân sự giữ SIM: danh bạ, giao / đổi người giữ / thu hồi, bàn giao, lịch sử.
 				adminGroup.GET("/staff", staffHandler.List)
 				adminGroup.POST("/staff", staffHandler.Create)
+				adminGroup.POST("/staff/import", staffHandler.Import)
 				adminGroup.PUT("/staff/:id", staffHandler.Update)
 				adminGroup.DELETE("/staff/:id", staffHandler.Delete)
 				adminGroup.POST("/staff/:id/leave", staffHandler.Leave)
