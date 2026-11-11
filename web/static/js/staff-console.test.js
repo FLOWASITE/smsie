@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { simLabel, buildSimRows, filterSimRows, summarizeStaff, holdDuration, describeAssignment, assignmentCsv, describeStaffError, describeImportItem, summarizeImport } = require('./staff-console.js');
+const { simLabel, buildSimRows, filterSimRows, summarizeStaff, holdDuration, describeAssignment, assignmentCsv, describeStaffError, describeImportItem, summarizeImport, describeSyncStatus } = require('./staff-console.js');
 
 test('simLabel: khe + số, thiếu thì đuôi ICCID', () => {
     assert.equal(simLabel({ slot_number: 3, phone_number: '0900000001', iccid: '8984' }), 'Khe 3 · 0900000001');
@@ -99,4 +99,26 @@ test('summarizeImport: xem trước nói "Sẽ nhập", áp dụng xong nói "Đ
     assert.deepEqual(summarizeImport({ applied: true, created: 2, returned: 1 }), { text: 'Đã nhập: 2 thêm mới · 1 làm lại.', todo: 3 });
     assert.deepEqual(summarizeImport({ applied: false, unchanged: 7 }), { text: 'Không có gì thay đổi: 7 không đổi.', todo: 0 });
     assert.deepEqual(summarizeImport({}), { text: 'File không có nhân sự nào.', todo: 0 });
+});
+
+test('describeSyncStatus: ẩn khi tắt, khoá nút khi thiếu cấu hình, nói lịch và lần gần nhất', () => {
+    assert.deepEqual(describeSyncStatus({ enabled: false }), { show: false, note: '' });
+    assert.deepEqual(describeSyncStatus(null), { show: false, note: '' });
+    const missing = describeSyncStatus({ enabled: true, configured: false });
+    assert.equal(missing.show, true);
+    assert.equal(missing.ready, false);
+    assert.match(missing.note, /chưa đủ cấu hình/);
+
+    const manual = describeSyncStatus({ enabled: true, configured: true });
+    assert.deepEqual(manual, { show: true, ready: true, failed: false, note: 'Đồng bộ từ KeHub khi bấm nút.' });
+
+    const auto = describeSyncStatus({ enabled: true, configured: true, auto_hour: 5, last: { at: '2026-11-11T05:00:00', ok: true, created: 1, updated: 2, left: 0, returned: 0 } });
+    assert.equal(auto.failed, false);
+    assert.match(auto.note, /^Tự đồng bộ từ KeHub lúc 05:00 mỗi ngày · lần gần nhất .+: 3 thay đổi\.$/);
+    assert.match(describeSyncStatus({ enabled: true, configured: true, auto_hour: 0, last: { at: '2026-11-11T00:00:00', ok: true } }).note, /lúc 00:00 mỗi ngày · lần gần nhất .+: không có gì thay đổi\.$/);
+
+    const failed = describeSyncStatus({ enabled: true, configured: true, last: { at: '2026-11-11T05:00:00', ok: false, error: 'KeHub đang lỗi hoặc quá tải.' } });
+    assert.equal(failed.failed, true);
+    assert.match(failed.note, /thất bại — KeHub đang lỗi hoặc quá tải\.$/);
+    assert.doesNotMatch(failed.note, /\.\.$/);
 });

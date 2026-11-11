@@ -61,6 +61,7 @@ var actions = map[string]string{
 	"POST /api/v1/admin/restore":                "restore.staged",
 	"POST /api/v1/staff":                        "staff.create",
 	"POST /api/v1/staff/import":                 "staff.import",
+	"POST /api/v1/staff/sync":                   "staff.sync",
 	"PUT /api/v1/staff/:id":                     "staff.update",
 	"DELETE /api/v1/staff/:id":                  "staff.delete",
 	"POST /api/v1/staff/:id/leave":              "staff.leave",

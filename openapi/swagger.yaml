@@ -970,6 +970,74 @@ paths:
         "400":
           description: Missing, unreadable or oversized file, or no name column
 
+  /staff/sync:
+    get:
+      summary: State of the KeHub staff sync through JiOne Connect (admin)
+      responses:
+        "200":
+          description: Never contains the machine key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  configured:
+                    type: boolean
+                    description: client id, unit and machine key are all set
+                  don_vi:
+                    type: string
+                  auto_hour:
+                    type: integer
+                    description: Hour of the daily automatic run; absent when sync is manual only
+                  last:
+                    type: object
+                    description: Last applied run (manual or automatic); absent before the first one
+                    properties:
+                      at:
+                        type: string
+                        format: date-time
+                      auto:
+                        type: boolean
+                      ok:
+                        type: boolean
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      created:
+                        type: integer
+                      updated:
+                        type: integer
+                      left:
+                        type: integer
+                      returned:
+                        type: integer
+    post:
+      summary: Pull staff from KeHub through JiOne Connect (admin)
+      description: >
+        Calls GET <staff_sync.url>?client_id&don_vi with the app machine key, then applies the same rules
+        as /staff/import. Without `apply` the call is a preview. A remote failure changes nothing.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                apply:
+                  type: boolean
+      responses:
+        "200":
+          description: Same body as /staff/import
+        "409":
+          description: Sync is disabled (code sync_disabled) or not fully configured (code sync_not_configured)
+        "502":
+          description: >
+            JiOne Connect or KeHub refused or failed. `code` is the contract error (invalid_client,
+            chuc_nang_chua_cap, don_vi_la, chua_ket_noi, ket_noi_het_han, chua_cau_hinh_kehub, nen_tang_loi…)
+            and `error` says who has to fix it.
+
   /staff/{id}:
     parameters:
       - name: id

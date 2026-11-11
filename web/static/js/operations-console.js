@@ -1322,7 +1322,7 @@ const AUDIT_LABELS = {
     'webhook.create': 'Tạo webhook', 'webhook.delete': 'Xoá webhook', 'auth.password': 'Đổi mật khẩu',
     'backup.ok': 'Sao lưu thành công', 'backup.failed': 'Sao lưu lỗi', 'restore.staged': 'Xếp lịch khôi phục', 'restore.applied': 'Đã khôi phục',
     'sim.assign': 'Giao SIM / đổi người giữ', 'sim.release': 'Thu hồi SIM', 'sim.transfer': 'Bàn giao SIM',
-    'staff.import': 'Nhập nhân sự từ file', 'staff.create': 'Thêm nhân sự', 'staff.update': 'Sửa nhân sự', 'staff.delete': 'Xoá nhân sự', 'staff.leave': 'Nhân sự nghỉ việc', 'staff.return': 'Nhân sự làm lại',
+    'staff.sync': 'Đồng bộ nhân sự từ KeHub', 'staff.import': 'Nhập nhân sự từ file', 'staff.create': 'Thêm nhân sự', 'staff.update': 'Sửa nhân sự', 'staff.delete': 'Xoá nhân sự', 'staff.leave': 'Nhân sự nghỉ việc', 'staff.return': 'Nhân sự làm lại',
     'auth.login': 'Đăng nhập', 'auth.jione_login': 'Đăng nhập Jione', 'auth.jione_logout': 'Jione báo đăng xuất'
 };
 function describeAudit(action) {

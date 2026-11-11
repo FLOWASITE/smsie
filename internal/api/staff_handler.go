@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/pccr10001/smsie/internal/model"
 	"github.com/pccr10001/smsie/internal/repository"
 	"github.com/pccr10001/smsie/internal/staffimport"
+	"github.com/pccr10001/smsie/internal/staffsync"
 	"gorm.io/gorm"
 )
 
@@ -27,6 +29,8 @@ import (
 //	POST   /api/v1/staff/:id/return        (admin) làm lại
 //	POST   /api/v1/staff/:id/transfer      (admin) bàn giao mọi SIM sang người khác {to_staff_id, note}
 //	POST   /api/v1/staff/import            (admin) nhập / đồng bộ từ file Excel-CSV (vd. xuất từ KeHub); apply=1 mới ghi
+//	GET    /api/v1/staff/sync              (admin) trạng thái đồng bộ KeHub qua JiOne Connect
+//	POST   /api/v1/staff/sync              (admin) đồng bộ từ KeHub {apply}; không apply = xem trước
 //	POST   /api/v1/modems/:iccid/holder    (admin) giao SIM / đổi người giữ {staff_id, note}
 //	DELETE /api/v1/modems/:iccid/holder    (admin) thu hồi SIM {note}
 //	GET    /api/v1/sim-assignments         (admin) lịch sử giao nhận ?iccid=&staff_id=&open=1&page=&page_size=
@@ -34,10 +38,18 @@ type StaffHandler struct {
 	db   *gorm.DB
 	repo *repository.StaffRepository
 	now  func() time.Time
+	// sync — đồng bộ từ KeHub qua JiOne Connect; nil = bản dựng/cấu hình không có.
+	sync *staffsync.Service
 }
 
 func NewStaffHandler(db *gorm.DB) *StaffHandler {
 	return &StaffHandler{db: db, repo: repository.NewStaffRepository(db), now: time.Now}
+}
+
+// WithSync gắn dịch vụ đồng bộ KeHub.
+func (h *StaffHandler) WithSync(s *staffsync.Service) *StaffHandler {
+	h.sync = s
+	return h
 }
 
 type staffInput struct {
@@ -418,4 +430,52 @@ func importErrorText(err error) string {
 	default:
 		return "Không đọc được file: " + err.Error()
 	}
+}
+
+// SyncStatus — GET /staff/sync: đồng bộ KeHub có bật / đủ cấu hình không, lần gần nhất ra sao. Không trả khoá.
+func (h *StaffHandler) SyncStatus(c *gin.Context) {
+	if h.sync == nil {
+		c.JSON(http.StatusOK, staffsync.Status{})
+		return
+	}
+	c.JSON(http.StatusOK, h.sync.Status())
+}
+
+// Sync — POST /staff/sync {apply}: lấy nhân sự KeHub qua JiOne Connect. Cùng dạng phản hồi với /staff/import
+// để giao diện dùng chung màn xem trước. Lỗi phía JiOne/KeHub trả 502 kèm câu nói rõ ai cần làm gì.
+func (h *StaffHandler) Sync(c *gin.Context) {
+	var req struct {
+		Apply bool `json:"apply"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if h.sync == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Đồng bộ từ KeHub chưa được bật trên máy chủ này.", "code": "sync_disabled"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	result, warnings, err := h.sync.Sync(ctx, req.Apply, false)
+	if err != nil {
+		switch {
+		case errors.Is(err, staffsync.ErrDisabled):
+			c.JSON(http.StatusConflict, gin.H{"error": "Đồng bộ từ KeHub chưa được bật trên máy chủ này.", "code": "sync_disabled"})
+		case errors.Is(err, staffsync.ErrNotConfigured):
+			c.JSON(http.StatusConflict, gin.H{"error": staffsync.UserMessage(err), "code": "sync_not_configured"})
+		default:
+			var re *staffsync.RemoteError
+			if errors.As(err, &re) {
+				c.Set("audit_target", "lỗi: "+re.Code)
+				c.JSON(http.StatusBadGateway, gin.H{"error": re.Message, "code": re.Code})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Không đồng bộ được danh sách nhân sự."})
+		}
+		return
+	}
+	if req.Apply {
+		c.Set("audit_target", staffsync.Summary(result))
+	} else {
+		c.Set("audit_target", fmt.Sprintf("xem trước %d dòng", len(result.Items)))
+	}
+	c.JSON(http.StatusOK, gin.H{"result": result, "columns": []string{"Mã NV", "Họ tên", "Phòng ban", "Bộ phận", "Email", "Điện thoại", "Trạng thái"}, "warnings": warnings})
 }

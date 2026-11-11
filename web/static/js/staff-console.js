@@ -148,8 +148,29 @@ function summarizeImport(result) {
     return { text: `${head}: ${parts.join(' · ')}.`, todo };
 }
 
+// describeSyncStatus: trạng thái đồng bộ KeHub → có hiện nút không và dòng chú thích dưới tiêu đề trang.
+function describeSyncStatus(status) {
+    const st = status || {};
+    if (!st.enabled) return { show: false, note: '' };
+    if (!st.configured) return { show: true, ready: false, note: 'Đồng bộ KeHub đã bật nhưng chưa đủ cấu hình (mã app, mã đơn vị, khoá máy).' };
+    const parts = [];
+    if (st.auto_hour !== undefined && st.auto_hour !== null) parts.push(`Tự đồng bộ từ KeHub lúc ${String(st.auto_hour).padStart(2, '0')}:00 mỗi ngày`);
+    else parts.push('Đồng bộ từ KeHub khi bấm nút');
+    const last = st.last;
+    if (last) {
+        const when = new Date(last.at).toLocaleString('vi-VN');
+        if (last.ok) {
+            const changed = (last.created || 0) + (last.updated || 0) + (last.left || 0) + (last.returned || 0);
+            parts.push(`lần gần nhất ${when}: ${changed ? `${changed} thay đổi` : 'không có gì thay đổi'}`);
+        } else {
+            parts.push(`lần gần nhất ${when} thất bại — ${last.error || 'không rõ lý do'}`);
+        }
+    }
+    return { show: true, ready: true, failed: !!(last && !last.ok), note: parts.join(' · ').replace(/\.+$/, '') + '.' };
+}
+
 if (typeof module !== 'undefined') {
-    module.exports = { simLabel, buildSimRows, filterSimRows, summarizeStaff, holdDuration, describeAssignment, assignmentCsv, describeStaffError, describeImportItem, summarizeImport };
+    module.exports = { simLabel, buildSimRows, filterSimRows, summarizeStaff, holdDuration, describeAssignment, assignmentCsv, describeStaffError, describeImportItem, summarizeImport, describeSyncStatus };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -499,29 +520,72 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
             .always(() => button.prop('disabled', false));
     }
 
-    // ----- Nhập / đồng bộ từ file Excel-CSV (vd. xuất từ KeHub) -----
+    // ----- Nhập từ file Excel-CSV, hoặc đồng bộ thẳng từ KeHub qua JiOne Connect — chung một màn xem trước -----
     let importFile = null;
+    let importMode = 'file'; // 'file' | 'kehub'
 
-    function openImport() {
+    function resetImport(mode) {
+        importMode = mode;
         importFile = null;
         $('#import-file').val('');
         $('#import-error').addClass('d-none').text('');
         $('#import-preview').addClass('d-none');
         $('#import-apply').prop('disabled', true).text('Áp dụng');
+        $('#import-title').text(mode === 'kehub' ? 'Đồng bộ nhân sự từ KeHub' : 'Nhập nhân sự từ Excel');
+        $('#import-file-block, #import-file-intro').toggleClass('d-none', mode === 'kehub');
+        $('#import-kehub-block').toggleClass('d-none', mode !== 'kehub');
+    }
+
+    function openImport() {
+        resetImport('file');
         $('#importModal').modal('show');
     }
 
+    function openKehubSync() {
+        resetImport('kehub');
+        $('#importModal').modal('show');
+        $('#import-summary').text('Đang lấy danh sách từ KeHub…');
+        $('#import-preview').removeClass('d-none');
+        $('#import-body, #import-warnings').empty();
+        $('#import-columns, #import-more').text('');
+        sendImport(false)
+            .done(function (res) {
+                const sum = renderImport(res);
+                $('#import-apply').prop('disabled', sum.todo === 0).text(sum.todo ? `Áp dụng ${sum.todo} thay đổi` : 'Không có gì để áp dụng');
+            })
+            .fail(function (xhr) {
+                $('#import-preview').addClass('d-none');
+                $('#import-error').removeClass('d-none').text(errText(xhr, 'Không lấy được danh sách từ KeHub.'));
+                loadSyncStatus();
+            });
+    }
+
     function sendImport(apply) {
+        if (importMode === 'kehub') return api('POST', '/api/v1/staff/sync', { apply: !!apply });
         const form = new FormData();
         form.append('file', importFile);
         if (apply) form.append('apply', '1');
         return $.ajax({ url: '/api/v1/staff/import', method: 'POST', data: form, processData: false, contentType: false });
     }
 
+    // Nút "Đồng bộ từ KeHub" chỉ hiện khi máy chủ bật staff_sync; dòng chú thích nói lịch và lần gần nhất.
+    function loadSyncStatus() {
+        return $.get('/api/v1/staff/sync').done(function (status) {
+            const d = describeSyncStatus(status);
+            $('#btn-sync-kehub').toggleClass('d-none', !d.show).prop('disabled', d.show && !d.ready)
+                .attr('title', d.show && !d.ready ? d.note : '');
+            $('#staff-sync-note').toggleClass('d-none', !d.show).toggleClass('staff-warning', !!d.failed || (d.show && !d.ready)).text(d.note);
+        }).fail(function () {
+            $('#btn-sync-kehub, #staff-sync-note').addClass('d-none');
+        });
+    }
+
     function renderImport(res) {
         const sum = summarizeImport(res.result);
         $('#import-summary').text(sum.text);
-        $('#import-columns').text((res.columns || []).length ? `Cột đọc được: ${res.columns.join(', ')}. Các cột khác trong file bị bỏ qua, không lưu.` : '');
+        $('#import-columns').text(importMode === 'kehub'
+            ? 'Nguồn: KeHub, qua JiOne Connect. Chỉ nhận mã, họ tên, phòng ban, email, điện thoại và trạng thái.'
+            : ((res.columns || []).length ? `Cột đọc được: ${res.columns.join(', ')}. Các cột khác trong file bị bỏ qua, không lưu.` : ''));
         const warn = $('#import-warnings').empty();
         (res.warnings || []).slice(0, 5).forEach(w => warn.append(el('div', '', w)));
         if ((res.warnings || []).length > 5) warn.append(el('div', '', `… và ${res.warnings.length - 5} dòng khác`));
@@ -566,13 +630,14 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
     }
 
     function applyImport() {
-        if (!importFile) return;
+        if (importMode === 'file' && !importFile) return;
         const button = $('#import-apply').prop('disabled', true);
         sendImport(true)
             .done(function (res) {
                 renderImport(res);
                 button.text('Đã áp dụng');
                 refresh();
+                if (importMode === 'kehub') loadSyncStatus();
             })
             .fail(function (xhr) {
                 $('#import-error').removeClass('d-none').text(errText(xhr, 'Không nhập được.'));
@@ -607,6 +672,7 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
         $('[data-staff-tab]').on('click', function () { showTab($(this).data('staff-tab')); });
         $('#btn-add-staff').on('click', () => openStaffForm(null));
         $('#btn-import-staff').on('click', openImport);
+        $('#btn-sync-kehub').on('click', openKehubSync);
         $('#import-file').on('change', previewImport);
         $('#import-apply').on('click', applyImport);
         $('#btn-assign-sim').on('click', () => openAssign({}));
@@ -636,7 +702,7 @@ if (typeof window !== 'undefined' && window.jQuery) (function () {
             });
         });
         $(document).on('smsie:route', function (_event, route) {
-            if (route.view === 'staff') refresh();
+            if (route.view === 'staff') { refresh(); loadSyncStatus(); }
         });
     });
 })();

@@ -17,6 +17,7 @@ import (
 	"github.com/pccr10001/smsie/internal/auth"
 	"github.com/pccr10001/smsie/internal/model"
 	"github.com/pccr10001/smsie/internal/repository"
+	"github.com/pccr10001/smsie/internal/staffsync"
 	"gorm.io/gorm"
 )
 
@@ -455,5 +456,181 @@ func TestImportStaffFromKeHubExport(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("nhật ký thiếu dòng tóm tắt lượt nhập: %+v", logs)
+	}
+}
+
+// fakeConnect đóng vai JiOne Connect (route C12): kiểm khoá máy + đơn vị rồi trả danh sách KeHub.
+type fakeConnect struct {
+	srv    *httptest.Server
+	body   string
+	status int
+	calls  int
+}
+
+func newFakeConnect(t *testing.T) *fakeConnect {
+	t.Helper()
+	f := &fakeConnect{status: http.StatusOK}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.calls++
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("Authorization") != "Bearer khoa-may" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+			return
+		}
+		if r.URL.Query().Get("don_vi") != "dv-1" || r.URL.Query().Get("client_id") != "smsie" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"don_vi_la"}`))
+			return
+		}
+		w.WriteHeader(f.status)
+		_, _ = w.Write([]byte(f.body))
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (e *staffEnv) withSync(f *fakeConnect, key string, enabled bool) {
+	svc := staffsync.NewService(e.db, staffsync.New(staffsync.Config{URL: f.srv.URL + "/v1/kehub.nhan_su", ClientID: "smsie", DonVi: "dv-1", Key: key}), enabled, -1)
+	h := NewStaffHandler(e.db).WithSync(svc)
+	mw := []gin.HandlerFunc{AuthMiddleware(e.db), audit.Middleware(e.db), AdminOnly()}
+	e.r.GET("/api/v1/staff/sync", append(mw, h.SyncStatus)...)
+	e.r.POST("/api/v1/staff/sync", append(mw, h.Sync)...)
+}
+
+func TestSyncStaffFromKeHubThroughConnect(t *testing.T) {
+	e := newStaffEnv(t)
+	f := newFakeConnect(t)
+	e.withSync(f, "khoa-may", true)
+	lan := e.addStaff("Lan")
+	e.db.Model(&model.Staff{}).Where("id = ?", lan).Update("code", "NV012")
+	call(e.r, http.MethodPost, "/api/v1/modems/SIM-A/holder", e.admin, gin.H{"staff_id": lan})
+
+	f.body = `{"to_chuc":"cty_abc","luc":"2026-11-11T09:00:00+07:00","nhan_su":[
+		{"ma_nv":"NV012","ho_ten":"Nguyễn Thị Lan","phong_ban":"Kế toán","bo_phan":"","email":"lan@cty.vn","sdt":"0988111222","da_nghi":true,"ngay_nghi_viec":"2026-11-10"},
+		{"ma_nv":"NV027","ho_ten":"Trần Văn Minh","phong_ban":"CSKH","bo_phan":"","email":"minh@cty.vn","sdt":"0988333444","da_nghi":false,"ngay_nghi_viec":null},
+		{"ma_nv":"NV050","ho_ten":"Người cũ","phong_ban":"","bo_phan":"","email":"","sdt":"","da_nghi":true,"ngay_nghi_viec":"2024-01-01"}
+	]}`
+
+	if w := call(e.r, http.MethodPost, "/api/v1/staff/sync", e.viewer, gin.H{"apply": true}); w.Code != http.StatusForbidden {
+		t.Fatalf("user thường đồng bộ = %d", w.Code)
+	}
+	var st staffsync.Status
+	_ = json.Unmarshal(call(e.r, http.MethodGet, "/api/v1/staff/sync", e.admin, nil).Body.Bytes(), &st)
+	if !st.Enabled || !st.Configured || st.DonVi != "dv-1" || st.Last != nil || st.AutoHour != nil {
+		t.Fatalf("trạng thái ban đầu = %+v", st)
+	}
+	if raw := call(e.r, http.MethodGet, "/api/v1/staff/sync", e.admin, nil).Body.String(); strings.Contains(raw, "khoa-may") {
+		t.Fatalf("trạng thái lộ khoá máy: %s", raw)
+	}
+
+	type reply struct {
+		Result   repository.ImportResult `json:"result"`
+		Warnings []string                `json:"warnings"`
+	}
+	// Xem trước: không ghi, không tính là "lần gần nhất".
+	w := call(e.r, http.MethodPost, "/api/v1/staff/sync", e.admin, gin.H{})
+	var preview reply
+	_ = json.Unmarshal(w.Body.Bytes(), &preview)
+	if w.Code != http.StatusOK || preview.Result.Applied || preview.Result.Created != 1 || preview.Result.Left != 1 || preview.Result.LeftHolding != 1 || preview.Result.Skipped != 1 {
+		t.Fatalf("xem trước = %d %s", w.Code, w.Body.String())
+	}
+	var n int64
+	e.db.Model(&model.Staff{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("xem trước mà đã ghi: %d nhân sự", n)
+	}
+
+	// Áp dụng.
+	w = call(e.r, http.MethodPost, "/api/v1/staff/sync", e.admin, gin.H{"apply": true})
+	var applied reply
+	_ = json.Unmarshal(w.Body.Bytes(), &applied)
+	if w.Code != http.StatusOK || !applied.Result.Applied || applied.Result.Created != 1 || applied.Result.Left != 1 {
+		t.Fatalf("áp dụng = %d %s", w.Code, w.Body.String())
+	}
+	var list []repository.StaffWithSIMs
+	_ = json.Unmarshal(call(e.r, http.MethodGet, "/api/v1/staff", e.admin, nil).Body.Bytes(), &list)
+	byName := map[string]repository.StaffWithSIMs{}
+	for _, s := range list {
+		byName[s.Name] = s
+	}
+	lanNow, minh := byName["Nguyễn Thị Lan"], byName["Trần Văn Minh"]
+	if len(list) != 2 || lanNow.Active || len(lanNow.SIMs) != 1 || lanNow.Department != "Kế toán" || lanNow.Phone != "0988111222" {
+		t.Fatalf("Lan (KeHub báo nghỉ; SIM không tự thu hồi; số điện thoại lấy từ KeHub) = %+v", lanNow)
+	}
+	if !minh.Active || minh.Code != "NV027" || minh.Phone != "0988333444" || minh.Email != "minh@cty.vn" {
+		t.Fatalf("Minh = %+v", minh)
+	}
+	_ = json.Unmarshal(call(e.r, http.MethodGet, "/api/v1/staff/sync", e.admin, nil).Body.Bytes(), &st)
+	if st.Last == nil || !st.Last.OK || st.Last.Created != 1 || st.Last.Left != 1 || st.Last.Auto {
+		t.Fatalf("lần gần nhất = %+v", st.Last)
+	}
+
+	// Chạy lại: không còn gì thay đổi.
+	w = call(e.r, http.MethodPost, "/api/v1/staff/sync", e.admin, gin.H{"apply": true})
+	var again reply
+	_ = json.Unmarshal(w.Body.Bytes(), &again)
+	if again.Result.Created != 0 || again.Result.Updated != 0 || again.Result.Left != 0 || again.Result.Unchanged != 2 {
+		t.Fatalf("đồng bộ lần hai = %s", w.Body.String())
+	}
+
+	// KeHub lỗi: 502 kèm câu giải thích, dữ liệu giữ nguyên.
+	f.status, f.body = http.StatusBadGateway, `{"error":"nen_tang_loi","ma_nen_tang":"502"}`
+	w = call(e.r, http.MethodPost, "/api/v1/staff/sync", e.admin, gin.H{"apply": true})
+	if w.Code != http.StatusBadGateway || errCode(w.Body.Bytes()) != "nen_tang_loi" || !strings.Contains(w.Body.String(), "giữ nguyên") {
+		t.Fatalf("KeHub lỗi = %d %s", w.Code, w.Body.String())
+	}
+	e.db.Model(&model.Staff{}).Count(&n)
+	if n != 2 {
+		t.Fatalf("lỗi phía xa làm đổi dữ liệu: %d nhân sự", n)
+	}
+	_ = json.Unmarshal(call(e.r, http.MethodGet, "/api/v1/staff/sync", e.admin, nil).Body.Bytes(), &st)
+	if st.Last == nil || st.Last.OK || st.Last.Code != "nen_tang_loi" {
+		t.Fatalf("lần gần nhất sau lỗi = %+v", st.Last)
+	}
+
+	// Nhật ký ghi lượt đồng bộ kèm tóm tắt.
+	var logs []model.AuditLog
+	for i := 0; i < 50; i++ {
+		e.db.Where("action = ?", "staff.sync").Order("id").Find(&logs)
+		if len(logs) >= 4 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	okSummary, okError := false, false
+	for _, l := range logs {
+		okSummary = okSummary || (l.Status == 200 && l.Target == "thêm 1, sửa 0, nghỉ 1, làm lại 0")
+		okError = okError || (l.Status == 502 && l.Target == "lỗi: nen_tang_loi")
+	}
+	if !okSummary || !okError {
+		t.Fatalf("nhật ký đồng bộ = %+v", logs)
+	}
+}
+
+func TestSyncRefusedWhenDisabledOrBadKey(t *testing.T) {
+	e := newStaffEnv(t)
+	f := newFakeConnect(t)
+	f.body = `{"nhan_su":[]}`
+	e.withSync(f, "khoa-sai", true)
+	w := call(e.r, http.MethodPost, "/api/v1/staff/sync", e.admin, gin.H{"apply": true})
+	if w.Code != http.StatusBadGateway || errCode(w.Body.Bytes()) != "invalid_client" || !strings.Contains(w.Body.String(), "khoá máy") {
+		t.Fatalf("khoá máy sai = %d %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "khoa-sai") {
+		t.Fatal("phản hồi lộ khoá máy")
+	}
+
+	off := newStaffEnv(t)
+	g := newFakeConnect(t)
+	off.withSync(g, "khoa-may", false)
+	w = call(off.r, http.MethodPost, "/api/v1/staff/sync", off.admin, gin.H{"apply": true})
+	if w.Code != http.StatusConflict || errCode(w.Body.Bytes()) != "sync_disabled" || g.calls != 0 {
+		t.Fatalf("tắt đồng bộ = %d %s, số lượt gọi ra ngoài = %d", w.Code, w.Body.String(), g.calls)
+	}
+	var st staffsync.Status
+	_ = json.Unmarshal(call(off.r, http.MethodGet, "/api/v1/staff/sync", off.admin, nil).Body.Bytes(), &st)
+	if st.Enabled {
+		t.Fatalf("trạng thái khi tắt = %+v", st)
 	}
 }

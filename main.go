@@ -32,6 +32,7 @@ import (
 	"github.com/pccr10001/smsie/internal/model"
 	"github.com/pccr10001/smsie/internal/repository"
 	"github.com/pccr10001/smsie/internal/simhealth"
+	"github.com/pccr10001/smsie/internal/staffsync"
 	"github.com/pccr10001/smsie/internal/worker"
 	"github.com/pccr10001/smsie/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
@@ -206,7 +207,22 @@ func main() {
 	auditHandler := api.NewAuditHandler(db)
 	reportHandler := api.NewReportHandler(db)
 	recordingHandler := api.NewCallRecordingHandler(db, "recordings")
-	staffHandler := api.NewStaffHandler(db)
+	// Đồng bộ nhân sự từ KeHub qua JiOne Connect: chỉ dựng khi bật; khoá máy đọc từ cấu hình/biến môi trường.
+	staffSyncCfg := config.AppConfig.StaffSync
+	staffSyncClientID := strings.TrimSpace(staffSyncCfg.ClientID)
+	if staffSyncClientID == "" {
+		staffSyncClientID = strings.TrimSpace(config.AppConfig.Jione.ClientID)
+	}
+	staffSync := staffsync.NewService(db, staffsync.New(staffsync.Config{
+		URL: staffSyncCfg.URL, ClientID: staffSyncClientID, DonVi: staffSyncCfg.DonVi, Key: staffSyncCfg.Key,
+	}), staffSyncCfg.Enabled, staffSyncCfg.Hour)
+	if staffSyncCfg.Enabled {
+		if st := staffSync.Status(); !st.Configured {
+			logger.Log.Warn("staff_sync.enabled = true nhưng thiếu client_id / don_vi / khoá máy (STAFF_SYNC_KEY) — đồng bộ KeHub chưa chạy được")
+		}
+		go staffSync.Run(schedStop)
+	}
+	staffHandler := api.NewStaffHandler(db).WithSync(staffSync)
 	mcpHTTP := api.NewMCPHTTPServer(db, wm)
 	r.Any("/mcp", gin.WrapH(mcpHTTP.Handler()))
 
@@ -292,6 +308,8 @@ func main() {
 				adminGroup.GET("/staff", staffHandler.List)
 				adminGroup.POST("/staff", staffHandler.Create)
 				adminGroup.POST("/staff/import", staffHandler.Import)
+				adminGroup.GET("/staff/sync", staffHandler.SyncStatus)
+				adminGroup.POST("/staff/sync", staffHandler.Sync)
 				adminGroup.PUT("/staff/:id", staffHandler.Update)
 				adminGroup.DELETE("/staff/:id", staffHandler.Delete)
 				adminGroup.POST("/staff/:id/leave", staffHandler.Leave)
