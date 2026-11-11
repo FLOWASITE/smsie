@@ -15,6 +15,11 @@
    Ingress nằm ở `tunnel.yml` (tunnel cấu hình local, dashboard không có). Tắt connector trên Windows
    (`Stop-Service cloudflared; Set-Service cloudflared -StartupType Disabled`) để không chia traffic hai máy.
 4. Nên bật Cloudflare Access cho smsie.jione.vn (Zero Trust → Applications) — trang có OTP/SMS.
+5. Đăng nhập bằng tài khoản Jione: đăng ký client `smsie` ở Jione với redirect URI
+   `https://smsie.jione.vn/oidc/callback` (và `https://sms.jione.vn/oidc/callback` nếu dùng cả hai tên miền), rồi thêm
+   khối `jione:` vào `config.yaml` (`enabled: true`, `client_id: "smsie"`, `admin_emails: [...]`) — chi tiết ở
+   `docs/jione-login.md`. Nếu bật cả Cloudflare Access thì cho `/oidc/backchannel-logout` đi qua (Bypass), vì Jione gọi
+   đường này từ máy chủ, không qua trình duyệt.
 
 Log: `/opt/smsie/logs/`. Khởi động lại: `sudo launchctl kickstart -k system/vn.jione.smsie`.
 Khe SIM: tự suy khe chỉ hiểu tên COM — trên Mac hiệu chuẩn khe lại ở tab Khe SIM.

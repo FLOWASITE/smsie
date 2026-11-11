@@ -24,6 +24,31 @@ type Config struct {
 	Audit AuditConfig `mapstructure:"audit"`
 	// Backup — sao lưu SQLite hằng ngày lúc Hour:00 vào Dir, giữ Keep bản mới nhất.
 	Backup BackupConfig `mapstructure:"backup"`
+	// Auth — khoá ký JWT và giới hạn thử đăng nhập.
+	Auth AuthConfig `mapstructure:"auth"`
+	// Jione — đăng nhập bằng tài khoản Jione (OpenID Connect tại id.jione.vn).
+	Jione JioneConfig `mapstructure:"jione"`
+}
+
+// AuthConfig — JWTSecret rỗng thì máy chủ tự sinh và lưu trong DB (bảng settings).
+type AuthConfig struct {
+	JWTSecret        string `mapstructure:"jwt_secret"`
+	LoginMaxAttempts int    `mapstructure:"login_max_attempts"`
+	LoginWindowMin   int    `mapstructure:"login_window_minutes"`
+}
+
+// JioneConfig — Authorization Code + PKCE, client công khai (không client_secret).
+type JioneConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	Issuer   string `mapstructure:"issuer"`
+	ClientID string `mapstructure:"client_id"`
+	// RedirectOrigin — origin công khai của smsie (vd. https://smsie.jione.vn). Rỗng = suy từ request.
+	RedirectOrigin string `mapstructure:"redirect_origin"`
+	// AdminEmails — email Jione (đã xác minh) được vào với quyền admin.
+	AdminEmails []string `mapstructure:"admin_emails"`
+	// AutoCreate — true: tài khoản Jione lạ được tạo user thường, chưa có quyền SIM nào.
+	// false (mặc định): chỉ người đã được admin tạo sẵn theo email mới vào được.
+	AutoCreate bool `mapstructure:"auto_create"`
 }
 
 type BackupConfig struct {
@@ -76,6 +101,8 @@ type LogConfig struct {
 type ServerConfig struct {
 	Port string `mapstructure:"port"`
 	Mode string `mapstructure:"mode"`
+	// TrustedProxies — proxy được tin để đọc IP khách từ X-Forwarded-For (mặc định chỉ loopback, tức cloudflared cùng máy).
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type DatabaseConfig struct {
@@ -163,6 +190,16 @@ func LoadConfig() {
 	viper.SetDefault("backup.dir", "backups")
 	viper.SetDefault("backup.hour", 3)
 	viper.SetDefault("backup.keep", 14)
+	viper.SetDefault("server.trusted_proxies", []string{"127.0.0.1", "::1"})
+	viper.SetDefault("auth.jwt_secret", "")
+	viper.SetDefault("auth.login_max_attempts", 10)
+	viper.SetDefault("auth.login_window_minutes", 15)
+	viper.SetDefault("jione.enabled", false)
+	viper.SetDefault("jione.issuer", "https://id.jione.vn")
+	viper.SetDefault("jione.client_id", "")
+	viper.SetDefault("jione.redirect_origin", "")
+	viper.SetDefault("jione.admin_emails", []string{})
+	viper.SetDefault("jione.auto_create", false)
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file not found, using defaults. Error: %v", err)

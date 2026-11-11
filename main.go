@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -8,15 +9,19 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/pccr10001/smsie/internal/api"
 	"github.com/pccr10001/smsie/internal/audit"
+	"github.com/pccr10001/smsie/internal/auth"
 	"github.com/pccr10001/smsie/internal/backup"
 	"github.com/pccr10001/smsie/internal/balance"
 	"github.com/pccr10001/smsie/internal/keepalive"
@@ -74,7 +79,18 @@ func main() {
 	if config.AppConfig.Server.Mode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	r := gin.Default()
+	// Khoá ký JWT: lấy từ cấu hình, không có thì tự sinh và lưu trong DB. Phải xong trước khi nhận request.
+	if err := auth.InitSecret(db, config.AppConfig.Auth.JWTSecret); err != nil {
+		logger.Log.Fatalf("Failed to initialise JWT secret: %v", err)
+	}
+
+	r := gin.New()
+	r.Use(gin.LoggerWithFormatter(accessLogLine), gin.Recovery())
+	// Chỉ tin X-Forwarded-For từ các proxy đã khai (mặc định: cloudflared cùng máy). Tin mọi nguồn thì ai cũng
+	// tự đặt được IP của mình, vô hiệu giới hạn đăng nhập theo IP và làm sai nhật ký.
+	if err := r.SetTrustedProxies(config.AppConfig.Server.TrustedProxies); err != nil {
+		logger.Log.Fatalf("server.trusted_proxies không hợp lệ: %v", err)
+	}
 
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -193,6 +209,17 @@ func main() {
 	mcpHTTP := api.NewMCPHTTPServer(db, wm)
 	r.Any("/mcp", gin.WrapH(mcpHTTP.Handler()))
 
+	// Đăng nhập bằng tài khoản Jione (OIDC): /oidc/login, /oidc/callback, /oidc/backchannel-logout…
+	jioneHandler := api.NewJioneHandler(db, config.AppConfig.Jione)
+	api.RegisterJioneRoutes(r, jioneHandler)
+	if config.AppConfig.Jione.Enabled {
+		if strings.TrimSpace(config.AppConfig.Jione.ClientID) == "" {
+			logger.Log.Warn("jione.enabled = true nhưng thiếu jione.client_id — đăng nhập Jione đang tắt")
+		} else {
+			logger.Log.Infof("Đăng nhập Jione bật: issuer=%s client_id=%s", config.AppConfig.Jione.Issuer, config.AppConfig.Jione.ClientID)
+		}
+	}
+
 	apiGroup := r.Group("/api/v1")
 	{
 		apiGroup.POST("/login", uh.Login)
@@ -268,11 +295,68 @@ func main() {
 		}
 	}
 
-	port := config.AppConfig.Server.Port
-	logger.Log.Infof("Server listening on %s", port)
-	if err := r.Run(port); err != nil {
-		logger.Log.Fatalf("Server failed to start: %v", err)
+	addr := config.AppConfig.Server.Port
+	if addr == "" {
+		addr = ":8080"
 	}
+	// Không đặt WriteTimeout/ReadTimeout tổng: WebSocket cuộc gọi và MCP wait_sms giữ kết nối lâu.
+	srv := &http.Server{Addr: addr, Handler: r, ReadHeaderTimeout: 15 * time.Second}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		logger.Log.Infof("Server listening on %s", addr)
+		serveErr <- srv.ListenAndServe()
+	}()
+
+	// Tắt êm: SIGINT/SIGTERM → ngừng nhận request, chờ tối đa 10 giây, rồi các defer ở trên dừng worker
+	// modem, cuộc gọi và scheduler. Trước đây tiến trình bị giết thẳng, defer không bao giờ chạy.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Log.Errorf("Server failed: %v", err)
+		}
+	case sig := <-quit:
+		logger.Log.Infof("Nhận tín hiệu %s, đang tắt…", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := srv.Shutdown(ctx); err != nil {
+			logger.Log.Warnf("Tắt HTTP server chưa gọn: %v", err)
+			_ = srv.Close()
+		}
+		cancel()
+	}
+}
+
+// sensitiveQueryKeys — tham số URL mang bí mật: token WebSocket, code/state của OIDC. Không ghi giá trị vào log.
+var sensitiveQueryKeys = map[string]bool{"token": true, "code": true, "state": true, "logout_token": true}
+
+// redactQuery thay giá trị các tham số nhạy cảm trong "path?query" bằng "***".
+func redactQuery(pathWithQuery string) string {
+	i := strings.IndexByte(pathWithQuery, '?')
+	if i < 0 {
+		return pathWithQuery
+	}
+	parts := strings.Split(pathWithQuery[i+1:], "&")
+	for n, part := range parts {
+		key := part
+		if eq := strings.IndexByte(part, '='); eq >= 0 {
+			key = part[:eq]
+		}
+		if decoded, err := url.QueryUnescape(key); err == nil {
+			key = decoded
+		}
+		if sensitiveQueryKeys[strings.ToLower(key)] {
+			parts[n] = key + "=***"
+		}
+	}
+	return pathWithQuery[:i+1] + strings.Join(parts, "&")
+}
+
+// accessLogLine: dòng log truy cập cùng dạng với gin mặc định, nhưng đã che tham số nhạy cảm.
+func accessLogLine(p gin.LogFormatterParams) string {
+	return fmt.Sprintf("[GIN] %s | %3d | %13v | %15s | %-7s %q\n%s",
+		p.TimeStamp.Format("2006/01/02 - 15:04:05"), p.StatusCode, p.Latency, p.ClientIP, p.Method, redactQuery(p.Path), p.ErrorMessage)
 }
 
 func initDB() *gorm.DB {
@@ -351,7 +435,7 @@ func autoMigrateSchema(db *gorm.DB) error {
 	if err := migrateLegacyUserModemPermissionColumns(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.PhoneNumberHistory{}, &model.AuditLog{})
+	return db.AutoMigrate(&model.User{}, &model.Modem{}, &model.SMS{}, &model.CallRecording{}, &model.Webhook{}, &model.UserModemPermission{}, &model.APIKey{}, &model.ModemBay{}, &model.SimSlotEvent{}, &model.BalanceSnapshot{}, &model.BalanceAlert{}, &model.SimAlert{}, &model.KeepaliveRun{}, &model.PhoneNumberHistory{}, &model.AuditLog{}, &model.Setting{})
 }
 
 func migrateLegacyModemSIPColumns(db *gorm.DB) error {

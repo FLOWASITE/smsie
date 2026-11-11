@@ -17,6 +17,7 @@
   - **Read**: View received SMS messages with pagination and search.`
   - **Send**: Send SMS with PDU supported.
   - **Immediate Scan**: Instant SMS detection upon receiving `+CMTI` notifications.
+  - **Undecodable messages**: a PDU that cannot be decoded is still stored (content says why, `raw_pdu` keeps the hex) and then removed from the SIM, so a broken message can no longer sit on the SIM forever and fill its storage.
 - **AT Command Terminal**: Execute raw AT commands directly on modems for debugging and advanced configuration.
 - **Voice Call (Dial/Hangup)**: Basic browser call controls per modem with call state tracking (`idle`, `dialing`, `in_call`).
   - Dial UI appears only when modem `AT+QCFG="usbcfg"` probe indicates UAC enabled, so we only support Quectel modules currently.
@@ -28,6 +29,8 @@
   - SIP registration/listener state is runtime-managed and shown per ICCID.
   - Multiple UAC-ready modems can run multiple SIP connections at the same time.
 - **Webhooks**: Forward received SMS messages to **Telegram** and **Slack** automatically.
+- **Sign in with Jione (đăng nhập bằng tài khoản Jione)**: optional OpenID Connect login against `id.jione.vn` (Authorization Code + PKCE, public client) next to the password form. Access is opt-in: only Jione accounts whose verified email an admin pre-registered (*Người dùng → Add → Email Jione*), or listed in `jione.admin_emails`, get in — unless `jione.auto_create` is on, in which case unknown accounts become plain users with no SIM access. Supports Back-Channel Logout (`POST /oidc/backchannel-logout`). Config keys: `jione.enabled`, `jione.issuer`, `jione.client_id`, `jione.redirect_origin`, `jione.admin_emails`, `jione.auto_create`. Setup and flow: [docs/jione-login.md](docs/jione-login.md).
+- **Session security**: the JWT signing key is never a constant — set `auth.jwt_secret` (≥ 32 chars, or env `AUTH_JWT_SECRET`) or leave it empty and smsie generates one on first start and keeps it in the database. Roles are read from the database on every request, changing a password (or a Jione logout) revokes every session of that user, and failed logins are limited per IP and per username (`auth.login_max_attempts` within `auth.login_window_minutes`, default 10 / 15 min → HTTP 429). `server.trusted_proxies` (default loopback) decides whose `X-Forwarded-For` is believed.
 - **User Management**:
   - Role-based access control (Admin/User).
   - Secure password storage using **Bcrypt**.

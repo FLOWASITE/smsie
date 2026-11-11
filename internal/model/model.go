@@ -12,9 +12,29 @@ type User struct {
 	PasswordHash  string         `gorm:"not null" json:"-"`
 	Role          string         `gorm:"default:'user'" json:"role"` // admin, user
 	AllowedModems string         `json:"allowed_modems"`             // Comma separated ICCIDs, or "*"
+	// Email — email (chữ thường) dùng để gắn tài khoản Jione lần đăng nhập đầu; rỗng = chỉ đăng nhập mật khẩu.
+	Email string `gorm:"column:email;size:254;index" json:"email,omitempty"`
+	// JioneSub — `sub` bất biến của tài khoản Jione (id.jione.vn); nil = chưa gắn.
+	JioneSub    *string `gorm:"column:jione_sub;size:191;uniqueIndex" json:"-"`
+	JioneLinked bool    `gorm:"-" json:"jione_linked"`
+	// TokenVersion — tăng lên là mọi JWT đã phát cho người này hết hiệu lực (đổi mật khẩu, Jione báo đăng xuất).
+	TokenVersion uint `gorm:"column:token_version;not null;default:0" json:"-"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// AfterFind điền cờ hiển thị jione_linked (không lộ sub ra API).
+func (u *User) AfterFind(*gorm.DB) error {
+	u.JioneLinked = u.JioneSub != nil && *u.JioneSub != ""
+	return nil
+}
+
+// Setting — cấu hình do máy chủ tự sinh và phải bền qua các lần khởi động (vd. khoá ký JWT).
+type Setting struct {
+	Name      string    `gorm:"primaryKey;size:64;column:name" json:"name"`
+	Value     string    `gorm:"column:value" json:"-"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type UserModemPermission struct {
