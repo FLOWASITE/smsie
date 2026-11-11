@@ -103,8 +103,10 @@ test('bayBalanceLabel shows Chưa kiểm tra until USSD has run', () => {
 });
 
 test('describePlan: hạn TK đỏ khi ≤7 ngày, ẩn phần thiếu, dấu gạch khi chưa biết', () => {
-    const now = new Date('2026-09-16T10:00:00+07:00').getTime();
-    const modem = { plan_expires_at: '2026-10-13T00:00:00+07:00', free_minutes: 10, free_minutes_expires_at: '2026-10-14T00:00:00+07:00', free_sms: 9, free_sms_expires_at: '2026-10-14T00:00:00+07:00', data_mb: 100, plan_updated_at: '2026-09-16T09:30:00+07:00' };
+    // Mốc thời gian KHÔNG kèm múi giờ = giờ địa phương của máy chạy test: giao diện hiển thị ngày theo giờ
+    // trình duyệt, nên test phải đúng ở mọi múi giờ (CI chạy UTC), không chỉ ở +07.
+    const now = new Date('2026-09-16T10:00:00').getTime();
+    const modem = { plan_expires_at: '2026-10-13T00:00:00', free_minutes: 10, free_minutes_expires_at: '2026-10-14T00:00:00', free_sms: 9, free_sms_expires_at: '2026-10-14T00:00:00', data_mb: 100, plan_updated_at: '2026-09-16T09:30:00' };
     const d = describePlan(modem, now);
     assert.equal(d.expiry, '13/10/2026');
     assert.equal(d.expiryTone, '');
@@ -115,8 +117,8 @@ test('describePlan: hạn TK đỏ khi ≤7 ngày, ẩn phần thiếu, dấu g�
     assert.equal(d.data, '100 MB');
     assert.equal(d.line, 'Hạn TK 13/10 · 10 phút · 9 SMS · 100 MB');
     assert.match(d.title, /^TK chính hết hạn 13\/10\/2026 · cập nhật 16\/09 \d{2}:\d{2}$/);
-    assert.equal(describePlan({ plan_expires_at: '2026-09-20T00:00:00+07:00' }, now).expiryTone, 'danger');
-    assert.equal(describePlan({ plan_expires_at: '2026-09-10T00:00:00+07:00' }, now).expiryTone, 'danger');
+    assert.equal(describePlan({ plan_expires_at: '2026-09-20T00:00:00' }, now).expiryTone, 'danger');
+    assert.equal(describePlan({ plan_expires_at: '2026-09-10T00:00:00' }, now).expiryTone, 'danger');
     assert.equal(describePlan({ data_mb: 1536 }, now).data, '1,5 GB');
     assert.equal(describePlan({ free_sms: 9 }, now).line, '9 SMS');
     assert.deepEqual(describePlan({}, now), { expiry: '—', expiryTone: '', minutes: '—', sms: '—', data: '—', head: '', title: '', minutesUntil: '', smsUntil: '', line: '' });
